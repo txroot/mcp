@@ -1,0 +1,25 @@
+# Secrets / runtime configuration
+.env
+.env.*
+!.env.example
+*.secret
+*.key
+*.pem
+runtime.env
+**/runtime.env
+**/.prestashop_orders_bridge.env
+
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+
+# Generated/runtime
+output/
+logs/
+*.log
+*.pid
+*.lock
+.DS_Store

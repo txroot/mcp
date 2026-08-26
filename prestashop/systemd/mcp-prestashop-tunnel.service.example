@@ -1,0 +1,17 @@
+[Unit]
+Description=PrestaShop MCP Secure Tunnel
+After=mcp-prestashop.service network-online.target
+Wants=network-online.target
+Requires=mcp-prestashop.service
+
+[Service]
+Type=simple
+EnvironmentFile=%h/.config/tunnel-client/host-tools-runtime.env
+ExecStart=/usr/local/bin/tunnel-client run --profile prestashop
+Restart=always
+RestartSec=3
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=default.target
