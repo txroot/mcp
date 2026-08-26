@@ -153,6 +153,16 @@ O resultado esperado é `True`; o utilizador SQL deve coincidir com `PRESTASHOP_
 
 O perfil de exemplo está em `tunnel/prestashop.yaml.example`. O `tunnel_id` é criado/atribuído no control plane e a API key permanece num runtime env local partilhado com `tunnel-client`.
 
+No host atual, o perfil chama-se `prestashop`, expõe Admin/Health em `127.0.0.1:18105` e encaminha para `http://127.0.0.1:8769/mcp`. O tunnel está associado à organização e ao workspace Microlumin da OpenAI.
+
+Para instalar o mesmo tunnel num computador de substituição/migração:
+
+```bash
+./scripts/configure_tunnel.sh tunnel_<id>
+```
+
+O script cria `~/.config/tunnel-client/prestashop.yaml`, instala `mcp-prestashop-tunnel.service` e ativa o serviço. O `CONTROL_PLANE_API_KEY` continua fora do Git, no runtime env local do `tunnel-client`.
+
 ## MCP Control Center
 
 No host de produção local, o MCP deve aparecer no Control Center com:

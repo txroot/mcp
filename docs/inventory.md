@@ -8,7 +8,7 @@ Inventário do host de desenvolvimento em 2026-08-26.
 | Google Tasks | Migração para repo pendente | através do tunnel/stdio | `mcp-google-tasks-tunnel.service` |
 | Memory | Migração para repo pendente | `mcp-memory.service` | `mcp-memory-tunnel.service` |
 | Google Analytics | Migração para repo pendente | `mcp-google-analytics.service` | `mcp-google-analytics-tunnel.service` |
-| PrestaShop | **Sim** | `mcp-prestashop.service` | por configurar |
+| PrestaShop | **Sim** | `mcp-prestashop.service` | `mcp-prestashop-tunnel.service` (`prestashop`) |
 | MCP Control Center | **Sim** | `mcp-control-center.service` | não aplicável |
 
 ## Regra

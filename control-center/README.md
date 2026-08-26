@@ -26,7 +26,7 @@ A separação é de **serviços**, não de aplicações de administração: cada
 | Google Tasks | stdio via tunnel | `18102` | Online |
 | Memory | `127.0.0.1:8765/mcp` | `18103` | Online |
 | Google Analytics | `127.0.0.1:8767/mcp` | `18104` | Online |
-| PrestaShop | `127.0.0.1:8769/mcp` | `18105` planeado | Online |
+| PrestaShop | `127.0.0.1:8769/mcp` | `18105` | Online |
 
 As portas são configuração do host, não uma exigência do protocolo.
 

@@ -23,7 +23,7 @@ O repositório **não guarda** passwords, tokens, API keys, ficheiros de credenc
 
 | MCP | Estado no repositório | Função |
 |---|---|---|
-| PrestaShop Eletrix | MVP operacional; tunnel OpenAI pendente | Operação, encomendas, carrinhos, catálogo, stock e auditoria de qualidade |
+| PrestaShop Eletrix | Operacional | Operação, encomendas, carrinhos, catálogo, stock e auditoria de qualidade |
 | MCP Control Center | Operacional | Gestão central dos MCPs locais |
 
 Os restantes MCPs locais serão migrados para esta estrutura progressivamente.
