@@ -20,6 +20,7 @@ fi
 
 python3 -m py_compile "$APP_DIR/server.py"
 systemctl --user daemon-reload
-systemctl --user enable --now mcp-control-center.service
+systemctl --user enable mcp-control-center.service
+systemctl --user restart mcp-control-center.service
 
 echo "MCP Control Center: http://127.0.0.1:18100"

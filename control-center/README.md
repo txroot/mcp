@@ -13,6 +13,7 @@ O Control Center corre apenas em `127.0.0.1:18100` e reúne numa única UI:
 - perfis `tunnel-client`;
 - Start / Stop / Restart;
 - logs;
+- botão **Info** com descoberta dinâmica das MCP tools realmente expostas pelo serviço;
 - ligação à Admin UI técnica dos tunnels quando existe.
 
 A separação é de **serviços**, não de aplicações de administração: cada MCP continua independente, mas a operação diária é centralizada aqui.
@@ -56,9 +57,10 @@ http://127.0.0.1:18100
 2. criar serviço e, se necessário, tunnel;
 3. adicionar uma entrada a `MCP_REGISTRY`;
 4. garantir que todas as units ficam em `SAFE_UNITS` através do registry;
-5. acrescentar um probe específico se a disponibilidade da fonte for diferente do simples health do tunnel;
-6. verificar que uma dependência em falta produz `degraded`, não um falso `online`;
-7. atualizar este README/inventário.
+5. configurar `tools_probe` para o botão **Info** conseguir descobrir as tools reais;
+6. acrescentar um probe específico se a disponibilidade da fonte for diferente do simples health do tunnel;
+7. verificar que uma dependência em falta produz `degraded`, não um falso `online`;
+8. atualizar este README/inventário.
 
 ## Migração
 

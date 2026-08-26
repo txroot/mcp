@@ -33,6 +33,7 @@ MCP_REGISTRY = {
         "health": "http://127.0.0.1:18082",
         "admin": "http://127.0.0.1:18082/ui",
         "kind": "HTTP + Tunnel",
+        "tools_probe": {"type": "http", "python": str(HOME / ".local/share/host-tools/.venv/bin/python"), "url": "http://127.0.0.1:8766/mcp"},
     },
     "google-tasks": {
         "name": "Google Tasks",
@@ -43,6 +44,7 @@ MCP_REGISTRY = {
         "health": "http://127.0.0.1:18102",
         "admin": "http://127.0.0.1:18102/ui",
         "kind": "stdio + Tunnel",
+        "tools_probe": {"type": "import", "python": "/opt/google-tasks-mcp/.venv/bin/python", "cwd": "/opt/google-tasks-mcp", "module": "server"},
     },
     "memory": {
         "name": "Memory",
@@ -53,6 +55,7 @@ MCP_REGISTRY = {
         "health": "http://127.0.0.1:18103",
         "admin": "http://127.0.0.1:18103/ui",
         "kind": "HTTP + Tunnel",
+        "tools_probe": {"type": "http", "python": str(HOME / "mcp-memory/.venv/bin/python"), "url": "http://127.0.0.1:8765/mcp"},
     },
     "google-analytics": {
         "name": "Google Analytics",
@@ -64,6 +67,7 @@ MCP_REGISTRY = {
         "admin": "http://127.0.0.1:18104/ui",
         "kind": "HTTP + Tunnel",
         "tunnel_configured": True,
+        "tools_probe": {"type": "http", "python": str(HOME / "chatgpt-workspace/google-analytics-mcp/.venv/bin/python"), "url": "http://127.0.0.1:8767/mcp"},
     },
     "prestashop": {
         "name": "PrestaShop",
@@ -75,6 +79,7 @@ MCP_REGISTRY = {
         "probe_type": "tcp",
         "kind": "HTTP (tunnel pending)",
         "tunnel_configured": False,
+        "tools_probe": {"type": "http", "python": str(HOME / "chatgpt-workspace/mcp/prestashop/.venv/bin/python"), "url": "http://127.0.0.1:8769/mcp"},
     },
 }
 
@@ -247,6 +252,97 @@ def memory_stats() -> dict | None:
         return None
 
 
+_TOOLS_CACHE: dict[str, dict] = {}
+
+_HTTP_TOOLS_PROBE_CODE = r"""
+import asyncio, json, sys
+from mcp import ClientSession
+from mcp.client.streamable_http import streamable_http_client
+
+async def main():
+    async with streamable_http_client(sys.argv[1]) as transport:
+        read_stream, write_stream = transport[0], transport[1]
+        async with ClientSession(read_stream, write_stream) as session:
+            await session.initialize()
+            result = await session.list_tools()
+            print(json.dumps([
+                {
+                    "name": tool.name,
+                    "title": getattr(tool, "title", None),
+                    "description": getattr(tool, "description", "") or "",
+                }
+                for tool in result.tools
+            ]))
+
+asyncio.run(main())
+"""
+
+_IMPORT_TOOLS_PROBE_CODE = r"""
+import importlib, json, sys
+module = importlib.import_module(sys.argv[1])
+mcp = module.mcp
+tools = []
+for name, tool in mcp._tool_manager._tools.items():
+    tools.append({
+        "name": name,
+        "title": getattr(tool, "title", None),
+        "description": getattr(tool, "description", "") or "",
+    })
+print(json.dumps(tools))
+"""
+
+
+def mcp_tools(ident: str, max_age: int = 300) -> dict:
+    now = time.time()
+    cached = _TOOLS_CACHE.get(ident)
+    if cached and now - float(cached.get("ts", 0)) < max_age:
+        return {k: v for k, v in cached.items() if k != "ts"}
+    cfg = MCP_REGISTRY.get(ident)
+    if not cfg:
+        return {"ok": False, "count": 0, "tools": [], "text": "Unknown MCP"}
+    probe = cfg.get("tools_probe")
+    if not probe:
+        return {"ok": False, "count": 0, "tools": [], "text": "Tool discovery not configured"}
+    try:
+        if probe.get("type") == "http":
+            cmd = [probe["python"], "-c", _HTTP_TOOLS_PROBE_CODE, probe["url"]]
+            cwd = None
+        elif probe.get("type") == "import":
+            cmd = [probe["python"], "-c", _IMPORT_TOOLS_PROBE_CODE, probe["module"]]
+            cwd = probe.get("cwd")
+        else:
+            raise RuntimeError("Unsupported tool probe type")
+        cp = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, timeout=18)
+        if cp.returncode != 0:
+            msg = redact((cp.stderr or cp.stdout or "Tool discovery failed").strip())
+            raise RuntimeError(msg.splitlines()[-1] if msg else "Tool discovery failed")
+        tools = json.loads(cp.stdout)
+        tools = sorted(tools, key=lambda item: str(item.get("name", "")))
+        result = {"ok": True, "count": len(tools), "tools": tools, "text": f"{len(tools)} tools discovered"}
+    except Exception as exc:
+        result = {"ok": False, "count": 0, "tools": [], "text": f"Tool discovery: {type(exc).__name__}: {redact(str(exc))[:280]}"}
+    _TOOLS_CACHE[ident] = {"ts": now, **result}
+    return result
+
+
+def mcp_info(ident: str) -> dict | None:
+    cfg = MCP_REGISTRY.get(ident)
+    if not cfg:
+        return None
+    services = [systemctl_show(unit) for unit in cfg["services"]]
+    return {
+        "id": ident,
+        "name": cfg["name"],
+        "description": cfg["description"],
+        "kind": cfg.get("kind", ""),
+        "mcp": cfg.get("mcp", ""),
+        "profile": cfg.get("profile", ""),
+        "tunnel_configured": cfg.get("tunnel_configured", cfg.get("profile") not in (None, "", "OpenAI tunnel pending")),
+        "services": services,
+        "tools": mcp_tools(ident),
+    }
+
+
 def profile_inventory() -> list[str]:
     d = HOME / ".config/tunnel-client"
     if not d.exists():
@@ -375,9 +471,10 @@ function notify(msg,bad=false){const n=document.getElementById('notice');n.textC
 function toggleHelp(ev){ev.stopPropagation();document.getElementById('helpBox').classList.toggle('show')}
 document.addEventListener('click',()=>document.getElementById('helpBox')?.classList.remove('show'));
 function serviceLine(s){const on=s.active==='active';return `<div><span class="dot ${on?'on':''}"></span><code>${esc(s.unit)}</code> · ${esc(s.active)}/${esc(s.sub)}${s.pid?` · PID ${s.pid}`:''}</div>`}
-function card(i){const ms=i.memory_stats?`<div class="row"><div class="key">Database</div><div class="val">${i.memory_stats.memories} memories · ${i.memory_stats.db_mb} MB</div></div>`:'';const ga=i.analytics_access?`<div class="row"><div class="key">GA4 data</div><div class="val"><span class="dot ${i.analytics_access.ok?'on':''}"></span>${esc(i.analytics_access.text)}</div></div><div class="row"><div class="key">Tunnel</div><div class="val"><span class="dot ${i.tunnel_configured?'on':''}"></span>${i.tunnel_configured?'OpenAI connected':'OpenAI tunnel pending'}</div></div>`:'';const source=i.source_access?`<div class="row"><div class="key">Source</div><div class="val"><span class="dot ${i.source_access.ok?'on':''}"></span>${esc(i.source_access.text)}</div></div><div class="row"><div class="key">Tunnel</div><div class="val"><span class="dot ${i.tunnel_configured?'on':''}"></span>${i.tunnel_configured?'OpenAI connected':'OpenAI tunnel pending'}</div></div>`:'';const admin=i.admin?`<a class="btn link" href="/admin?id=${encodeURIComponent(i.id)}">Admin UI</a>`:'';return `<div class="card"><div class="cardhead"><div><div class="name">${esc(i.name)}</div><div class="desc">${esc(i.description)}</div></div><span class="pill ${i.state}">${i.state}</span></div><div class="meta"><div class="row"><div class="key">Services</div><div class="val">${i.services.map(serviceLine).join('')}</div></div><div class="row"><div class="key">Ready</div><div class="val"><span class="dot ${i.probe.ready?'on':''}"></span>${esc(i.probe.ready_text)}</div></div><div class="row"><div class="key">Profile</div><div class="val"><code>${esc(i.profile)}</code></div></div><div class="row"><div class="key">MCP</div><div class="val"><code>${esc(i.mcp)}</code></div></div>${ga}${source}${ms}</div><div class="actions"><button class="btn" onclick="act('${i.id}','start')">Start</button><button class="btn" onclick="act('${i.id}','restart')">Restart</button><button class="btn danger" onclick="act('${i.id}','stop')">Stop</button><button class="btn" onclick="logs('${i.id}','${esc(i.name)}')">Logs</button>${admin}</div></div>`}
+function card(i){const ms=i.memory_stats?`<div class="row"><div class="key">Database</div><div class="val">${i.memory_stats.memories} memories · ${i.memory_stats.db_mb} MB</div></div>`:'';const ga=i.analytics_access?`<div class="row"><div class="key">GA4 data</div><div class="val"><span class="dot ${i.analytics_access.ok?'on':''}"></span>${esc(i.analytics_access.text)}</div></div><div class="row"><div class="key">Tunnel</div><div class="val"><span class="dot ${i.tunnel_configured?'on':''}"></span>${i.tunnel_configured?'OpenAI connected':'OpenAI tunnel pending'}</div></div>`:'';const source=i.source_access?`<div class="row"><div class="key">Source</div><div class="val"><span class="dot ${i.source_access.ok?'on':''}"></span>${esc(i.source_access.text)}</div></div><div class="row"><div class="key">Tunnel</div><div class="val"><span class="dot ${i.tunnel_configured?'on':''}"></span>${i.tunnel_configured?'OpenAI connected':'OpenAI tunnel pending'}</div></div>`:'';const admin=i.admin?`<a class="btn link" href="/admin?id=${encodeURIComponent(i.id)}">Admin UI</a>`:'';return `<div class="card"><div class="cardhead"><div><div class="name">${esc(i.name)}</div><div class="desc">${esc(i.description)}</div></div><span class="pill ${i.state}">${i.state}</span></div><div class="meta"><div class="row"><div class="key">Services</div><div class="val">${i.services.map(serviceLine).join('')}</div></div><div class="row"><div class="key">Ready</div><div class="val"><span class="dot ${i.probe.ready?'on':''}"></span>${esc(i.probe.ready_text)}</div></div><div class="row"><div class="key">Profile</div><div class="val"><code>${esc(i.profile)}</code></div></div><div class="row"><div class="key">MCP</div><div class="val"><code>${esc(i.mcp)}</code></div></div>${ga}${source}${ms}</div><div class="actions"><button class="btn" onclick="act('${i.id}','start')">Start</button><button class="btn" onclick="act('${i.id}','restart')">Restart</button><button class="btn danger" onclick="act('${i.id}','stop')">Stop</button><button class="btn" onclick="info('${i.id}','${esc(i.name)}')">Info</button><button class="btn" onclick="logs('${i.id}','${esc(i.name)}')">Logs</button>${admin}</div></div>`}
 async function refresh(manual=false){if(refreshInFlight)return;refreshInFlight=true;const b=document.getElementById('refreshBtn');if(manual)b?.classList.add('spinning');try{const r=await fetch('/api/status',{cache:'no-store'});const d=await r.json();document.getElementById('mOnline').textContent=d.summary.online;document.getElementById('mDegraded').textContent=d.summary.degraded;document.getElementById('mOffline').textContent=d.summary.offline;document.getElementById('mProfiles').textContent=d.profiles.length;document.getElementById('grid').innerHTML=d.items.map(card).join('');const ds=document.getElementById('detectedSection');document.getElementById('detected').innerHTML=d.detected.map(x=>`<div class="ghost"><b>${esc(x.name)}</b><span>${esc(x.description)}</span><br><code>${esc(x.path)}</code></div>`).join('');ds.classList.toggle('empty',!d.detected.length);document.getElementById('profiles').innerHTML=d.profiles.map(x=>`<span class="profiletag">${esc(x)}</span>`).join('')+(d.unmanaged_profiles.length?`<div class="desc" style="margin-top:8px">Unmanaged: ${d.unmanaged_profiles.map(esc).join(', ')}</div>`:'');}catch(e){notify('Status refresh failed: '+e,true)}finally{refreshInFlight=false;if(manual)setTimeout(()=>b?.classList.remove('spinning'),180)}}
 async function act(id,action){if(action==='stop'&&!confirm('Stop '+id+'?'))return;notify(`${action} ${id}…`);try{const r=await fetch('/api/action',{method:'POST',headers:{'Content-Type':'application/json','X-MCP-Control-Token':TOKEN},body:JSON.stringify({id,action})});const d=await r.json();notify(d.message||`${action} completed`,!d.ok);setTimeout(()=>refresh(false),900)}catch(e){notify('Action failed: '+e,true)}}
+async function info(id,name){document.getElementById('modal').classList.add('show');document.getElementById('modalTitle').textContent='Info · '+name;const box=document.getElementById('logs');box.textContent='Discovering MCP tools…';try{const r=await fetch('/api/info?id='+encodeURIComponent(id),{headers:{'X-MCP-Control-Token':TOKEN},cache:'no-store'});const d=await r.json();if(!r.ok)throw new Error(d.error||'Info request failed');const lines=[];lines.push(d.description||'');lines.push('');lines.push('Transport: '+(d.kind||'—'));lines.push('MCP: '+(d.mcp||'—'));lines.push('Tunnel profile: '+(d.profile||'—'));lines.push('Tunnel: '+(d.tunnel_configured?'configured':'pending / not required'));lines.push('');lines.push('System services ('+(d.services||[]).length+'):');for(const s of (d.services||[]))lines.push('  • '+s.unit+' — '+s.active+'/'+s.sub+' · '+s.enabled);lines.push('');const t=d.tools||{};lines.push('MCP tools ('+(t.count||0)+')'+(t.ok?'':' — discovery unavailable'));if(!t.ok&&t.text)lines.push('  '+t.text);for(const tool of (t.tools||[])){const title=tool.title&&tool.title!==tool.name?' — '+tool.title:'';lines.push('');lines.push('  '+tool.name+title);if(tool.description)lines.push('    '+tool.description.replace(/\s+/g,' ').trim())}box.textContent=lines.join('\n')}catch(e){box.textContent='Info failed: '+e}}
 async function logs(id,name){document.getElementById('modal').classList.add('show');document.getElementById('modalTitle').textContent='Logs · '+name;document.getElementById('logs').textContent='Loading…';try{const r=await fetch('/api/logs?id='+encodeURIComponent(id),{headers:{'X-MCP-Control-Token':TOKEN},cache:'no-store'});const d=await r.json();document.getElementById('logs').textContent=d.logs||d.error||'No logs'}catch(e){document.getElementById('logs').textContent=String(e)}}
 function closeModal(){document.getElementById('modal').classList.remove('show')}
 refresh(false);setInterval(()=>refresh(false),5000);
@@ -435,6 +532,12 @@ class Handler(BaseHTTPRequestHandler):
             self.end_headers(); self.wfile.write(body); return
         if p.path == "/api/status":
             self._json(status_payload()); return
+        if p.path == "/api/info":
+            if not self._authorized(): self._json({"error":"unauthorized"},403); return
+            ident = parse_qs(p.query).get("id", [""])[0]
+            info = mcp_info(ident)
+            if info is None: self._json({"error":"unknown MCP"},404); return
+            self._json(info); return
         if p.path == "/api/logs":
             if not self._authorized(): self._json({"error":"unauthorized"},403); return
             ident = parse_qs(p.query).get("id", [""])[0]
