@@ -116,8 +116,16 @@ def product_quality_audit(
     active_only: bool = True,
     limit: Annotated[int, Field(ge=1, le=200)] = 100,
 ) -> dict[str, Any]:
-    """Detect incomplete or suspicious product records: references, EAN, brand, descriptions, images, SEO, price, stock and duplicates."""
+    """Detect incomplete or suspicious product records: references, EAN format, brand, descriptions, images, SEO, price and stock. Use product_duplicates for repeated identifiers."""
     return request_bridge("product_quality_audit", active_only=int(active_only), limit=limit)
+
+
+@mcp.tool(title="Find duplicate PrestaShop identifiers", annotations=READ_ONLY)
+def product_duplicates(
+    limit: Annotated[int, Field(ge=1, le=200)] = 100,
+) -> dict[str, Any]:
+    """Find repeated product references, EANs, slugs and combination references/EANs without modifying the catalogue."""
+    return request_bridge("product_duplicates", limit=limit)
 
 
 if __name__ == "__main__":

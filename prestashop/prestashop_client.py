@@ -76,4 +76,17 @@ def health_check() -> dict[str, Any]:
     security = payload.get("security", {})
     if security.get("arbitrary_sql_supported") is not False or security.get("write_queries_supported") is not False:
         raise RuntimeError("Bridge did not confirm fixed-query read-only mode")
+
+    # Defence in depth: the bridge code is read-only, but the MariaDB account must
+    # also remain least-privilege. Fail readiness if a future grant adds writes.
+    allowed_privileges = {"SELECT", "USAGE"}
+    for grant in payload.get("grants", []):
+        text = str(grant).strip().upper()
+        if not text.startswith("GRANT ") or " ON " not in text:
+            continue
+        privileges = text[6:].split(" ON ", 1)[0]
+        for privilege in privileges.split(","):
+            name = privilege.strip()
+            if name and name not in allowed_privileges:
+                raise RuntimeError(f"Database account has non-read-only privilege: {name}")
     return payload

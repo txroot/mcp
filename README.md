@@ -23,7 +23,8 @@ O repositório **não guarda** passwords, tokens, API keys, ficheiros de credenc
 
 | MCP | Estado no repositório | Função |
 |---|---|---|
-| PrestaShop Eletrix | Em desenvolvimento | Operação, encomendas, carrinhos, catálogo, stock e auditoria de qualidade |
+| PrestaShop Eletrix | MVP operacional; tunnel OpenAI pendente | Operação, encomendas, carrinhos, catálogo, stock e auditoria de qualidade |
+| MCP Control Center | Operacional | Gestão central dos MCPs locais |
 
 Os restantes MCPs locais serão migrados para esta estrutura progressivamente.
 
@@ -34,7 +35,9 @@ mcp/
 ├── README.md
 ├── docs/
 │   ├── architecture.md
+│   ├── inventory.md
 │   └── migration.md
+├── control-center/
 └── prestashop/
     ├── README.md
     ├── server.py

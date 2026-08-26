@@ -391,31 +391,48 @@ try {
         $activeOnly = int_param('active_only', 1, 0, 1);
         $limit = int_param('limit', 100, 1, 200);
         $activeClause = $activeOnly ? 'AND p.active=1' : '';
-        $common = "p.id_shop_default=:shop {$activeClause}";
-        $summary = fetch_one($pdo, "
+
+        // Keep each check simple and index-friendly. Duplicates are handled by
+        // product_duplicates so this audit remains safe on a large catalogue.
+        $core = fetch_one($pdo, "
             SELECT COUNT(*) audited_products,
-                SUM(TRIM(COALESCE(p.reference,''))='') missing_reference,
-                SUM(TRIM(COALESCE(p.ean13,''))='') missing_ean,
-                SUM(TRIM(COALESCE(p.ean13,''))<>'' AND (p.ean13 NOT REGEXP '^[0-9]+$' OR CHAR_LENGTH(p.ean13) NOT IN (8,13))) suspicious_ean,
-                SUM(p.id_manufacturer=0 OR p.id_manufacturer IS NULL) missing_manufacturer,
-                SUM(TRIM(COALESCE(pl.name,''))='') missing_name,
-                SUM(CHAR_LENGTH(TRIM(COALESCE(pl.description,'')))<40) short_or_missing_description,
-                SUM(CHAR_LENGTH(TRIM(COALESCE(pl.description_short,'')))<20) short_or_missing_short_description,
-                SUM(TRIM(COALESCE(pl.meta_title,''))='') missing_meta_title,
-                SUM(TRIM(COALESCE(pl.meta_description,''))='') missing_meta_description,
-                SUM(p.price<=0) non_positive_price,
-                SUM(p.active=1 AND COALESCE(sa.quantity,0)<=0) active_without_stock,
-                SUM(NOT EXISTS(SELECT 1 FROM `{$p}image` i WHERE i.id_product=p.id_product)) missing_image,
-                SUM(TRIM(COALESCE(p.reference,''))<>'' AND (SELECT COUNT(*) FROM `{$p}product` px WHERE px.reference=p.reference)>1) duplicate_reference,
-                SUM(TRIM(COALESCE(pl.link_rewrite,''))<>'' AND (SELECT COUNT(*) FROM `{$p}product_lang` plx WHERE plx.id_shop=:dup_shop AND plx.id_lang=:dup_lang AND plx.link_rewrite=pl.link_rewrite)>1) duplicate_slug
+                   SUM(TRIM(COALESCE(p.reference,''))='') missing_reference,
+                   SUM(TRIM(COALESCE(p.ean13,''))='') missing_ean,
+                   SUM(TRIM(COALESCE(p.ean13,''))<>'' AND (p.ean13 NOT REGEXP '^[0-9]+$' OR CHAR_LENGTH(p.ean13) NOT IN (8,13))) suspicious_ean,
+                   SUM(p.id_manufacturer=0 OR p.id_manufacturer IS NULL) missing_manufacturer,
+                   SUM(p.price<=0) non_positive_price
             FROM `{$p}product` p
-            LEFT JOIN `{$p}product_lang` pl ON pl.id_product=p.id_product AND pl.id_shop=:pl_shop AND pl.id_lang=:lang
-            LEFT JOIN `{$p}stock_available` sa ON sa.id_product=p.id_product AND sa.id_product_attribute=0 AND sa.id_shop=:sa_shop
-            WHERE {$common}
-        ", ['dup_shop'=>$shopId,'dup_lang'=>$langId,'pl_shop'=>$shopId,'lang'=>$langId,'sa_shop'=>$shopId,'shop'=>$shopId]);
+            WHERE p.id_shop_default={$shopId} {$activeClause}
+        ");
+        $text = fetch_one($pdo, "
+            SELECT SUM(TRIM(COALESCE(pl.name,''))='') missing_name,
+                   SUM(CHAR_LENGTH(TRIM(COALESCE(pl.description,'')))<40) short_or_missing_description,
+                   SUM(CHAR_LENGTH(TRIM(COALESCE(pl.description_short,'')))<20) short_or_missing_short_description,
+                   SUM(TRIM(COALESCE(pl.meta_title,''))='') missing_meta_title,
+                   SUM(TRIM(COALESCE(pl.meta_description,''))='') missing_meta_description
+            FROM `{$p}product` p
+            LEFT JOIN `{$p}product_lang` pl
+              ON pl.id_product=p.id_product AND pl.id_shop={$shopId} AND pl.id_lang={$langId}
+            WHERE p.id_shop_default={$shopId} {$activeClause}
+        ");
+        $stock = fetch_one($pdo, "
+            SELECT SUM(p.active=1 AND COALESCE(sa.quantity,0)<=0) active_without_stock
+            FROM `{$p}product` p
+            LEFT JOIN `{$p}stock_available` sa
+              ON sa.id_product=p.id_product AND sa.id_product_attribute=0 AND sa.id_shop={$shopId}
+            WHERE p.id_shop_default={$shopId} {$activeClause}
+        ");
+        $images = fetch_one($pdo, "
+            SELECT COUNT(*) missing_image
+            FROM `{$p}product` p
+            WHERE p.id_shop_default={$shopId} {$activeClause}
+              AND NOT EXISTS (SELECT 1 FROM `{$p}image` i WHERE i.id_product=p.id_product)
+        ");
+        $summary = array_merge($core, $text, $stock, $images);
+
         $rows = fetch_all($pdo, "
             SELECT p.id_product,p.reference,p.ean13,p.active,p.price price_ex_tax,COALESCE(sa.quantity,0) stock_quantity,
-                   pl.name,m.name manufacturer,(SELECT COUNT(*) FROM `{$p}image` i WHERE i.id_product=p.id_product) image_count,
+                   pl.name,m.name manufacturer,COALESCE(img.image_count,0) image_count,
                    CONCAT_WS(',',
                      IF(TRIM(COALESCE(p.reference,''))='','missing_reference',NULL),
                      IF(TRIM(COALESCE(p.ean13,''))='','missing_ean',NULL),
@@ -428,21 +445,81 @@ try {
                      IF(TRIM(COALESCE(pl.meta_description,''))='','missing_meta_description',NULL),
                      IF(p.price<=0,'non_positive_price',NULL),
                      IF(p.active=1 AND COALESCE(sa.quantity,0)<=0,'active_without_stock',NULL),
-                     IF(NOT EXISTS(SELECT 1 FROM `{$p}image` ix WHERE ix.id_product=p.id_product),'missing_image',NULL),
-                     IF(TRIM(COALESCE(p.reference,''))<>'' AND (SELECT COUNT(*) FROM `{$p}product` px WHERE px.reference=p.reference)>1,'duplicate_reference',NULL),
-                     IF(TRIM(COALESCE(pl.link_rewrite,''))<>'' AND (SELECT COUNT(*) FROM `{$p}product_lang` plx WHERE plx.id_shop=:dup_shop AND plx.id_lang=:dup_lang AND plx.link_rewrite=pl.link_rewrite)>1,'duplicate_slug',NULL)
+                     IF(img.id_product IS NULL,'missing_image',NULL)
                    ) issues
             FROM `{$p}product` p
-            LEFT JOIN `{$p}product_lang` pl ON pl.id_product=p.id_product AND pl.id_shop=:pl_shop AND pl.id_lang=:lang
+            LEFT JOIN `{$p}product_lang` pl
+              ON pl.id_product=p.id_product AND pl.id_shop={$shopId} AND pl.id_lang={$langId}
             LEFT JOIN `{$p}manufacturer` m ON m.id_manufacturer=p.id_manufacturer
-            LEFT JOIN `{$p}stock_available` sa ON sa.id_product=p.id_product AND sa.id_product_attribute=0 AND sa.id_shop=:sa_shop
-            WHERE {$common}
+            LEFT JOIN `{$p}stock_available` sa
+              ON sa.id_product=p.id_product AND sa.id_product_attribute=0 AND sa.id_shop={$shopId}
+            LEFT JOIN (
+                SELECT id_product, COUNT(*) image_count FROM `{$p}image` GROUP BY id_product
+            ) img ON img.id_product=p.id_product
+            WHERE p.id_shop_default={$shopId} {$activeClause}
             HAVING issues<>''
-            ORDER BY (issues LIKE '%duplicate_reference%' OR issues LIKE '%non_positive_price%' OR issues LIKE '%missing_reference%') DESC,
+            ORDER BY (issues LIKE '%non_positive_price%' OR issues LIKE '%missing_reference%') DESC,
                      (LENGTH(issues)-LENGTH(REPLACE(issues,',',''))+1) DESC,p.id_product
             LIMIT {$limit}
-        ", ['dup_shop'=>$shopId,'dup_lang'=>$langId,'pl_shop'=>$shopId,'lang'=>$langId,'sa_shop'=>$shopId,'shop'=>$shopId]);
-        respond(200, ['ok'=>true,'mode'=>'product_quality_audit','active_only'=>(bool)$activeOnly,'summary'=>$summary,'flagged_products'=>$rows,'list_limit'=>$limit,'note'=>'Quality rules are review indicators; no product is modified.']);
+        ");
+        respond(200, [
+            'ok'=>true,'mode'=>'product_quality_audit','active_only'=>(bool)$activeOnly,
+            'summary'=>$summary,'flagged_products'=>$rows,'list_limit'=>$limit,
+            'duplicates_tool'=>'product_duplicates',
+            'note'=>'Quality rules are review indicators; no product is modified. Duplicate identifiers are reported separately.'
+        ]);
+    }
+
+    if ($mode === 'product_duplicates') {
+        $limit = int_param('limit', 100, 1, 200);
+        $productRefs = fetch_all($pdo, "
+            SELECT reference identifier,COUNT(*) occurrences,
+                   SUBSTRING_INDEX(GROUP_CONCAT(id_product ORDER BY id_product SEPARATOR ','),',',50) product_ids_sample
+            FROM `{$p}product`
+            WHERE id_shop_default={$shopId} AND TRIM(COALESCE(reference,''))<>''
+            GROUP BY reference HAVING COUNT(*)>1
+            ORDER BY occurrences DESC,identifier LIMIT {$limit}
+        ");
+        $productEans = fetch_all($pdo, "
+            SELECT ean13 identifier,COUNT(*) occurrences,
+                   SUBSTRING_INDEX(GROUP_CONCAT(id_product ORDER BY id_product SEPARATOR ','),',',50) product_ids_sample
+            FROM `{$p}product`
+            WHERE id_shop_default={$shopId} AND TRIM(COALESCE(ean13,''))<>''
+            GROUP BY ean13 HAVING COUNT(*)>1
+            ORDER BY occurrences DESC,identifier LIMIT {$limit}
+        ");
+        $slugs = fetch_all($pdo, "
+            SELECT link_rewrite identifier,COUNT(*) occurrences,
+                   SUBSTRING_INDEX(GROUP_CONCAT(id_product ORDER BY id_product SEPARATOR ','),',',50) product_ids_sample
+            FROM `{$p}product_lang`
+            WHERE id_shop={$shopId} AND id_lang={$langId} AND TRIM(COALESCE(link_rewrite,''))<>''
+            GROUP BY link_rewrite HAVING COUNT(*)>1
+            ORDER BY occurrences DESC,identifier LIMIT {$limit}
+        ");
+        $combinationRefs = fetch_all($pdo, "
+            SELECT pa.reference identifier,COUNT(*) occurrences,
+                   SUBSTRING_INDEX(GROUP_CONCAT(CONCAT(pa.id_product,':',pa.id_product_attribute) ORDER BY pa.id_product,pa.id_product_attribute SEPARATOR ','),',',50) combination_ids_sample
+            FROM `{$p}product_attribute` pa
+            JOIN `{$p}product` p0 ON p0.id_product=pa.id_product AND p0.id_shop_default={$shopId}
+            WHERE TRIM(COALESCE(pa.reference,''))<>''
+            GROUP BY pa.reference HAVING COUNT(*)>1
+            ORDER BY occurrences DESC,identifier LIMIT {$limit}
+        ");
+        $combinationEans = fetch_all($pdo, "
+            SELECT pa.ean13 identifier,COUNT(*) occurrences,
+                   SUBSTRING_INDEX(GROUP_CONCAT(CONCAT(pa.id_product,':',pa.id_product_attribute) ORDER BY pa.id_product,pa.id_product_attribute SEPARATOR ','),',',50) combination_ids_sample
+            FROM `{$p}product_attribute` pa
+            JOIN `{$p}product` p0 ON p0.id_product=pa.id_product AND p0.id_shop_default={$shopId}
+            WHERE TRIM(COALESCE(pa.ean13,''))<>''
+            GROUP BY pa.ean13 HAVING COUNT(*)>1
+            ORDER BY occurrences DESC,identifier LIMIT {$limit}
+        ");
+        respond(200, [
+            'ok'=>true,'mode'=>'product_duplicates','limit_per_group'=>$limit,
+            'product_references'=>$productRefs,'product_eans'=>$productEans,'slugs'=>$slugs,
+            'combination_references'=>$combinationRefs,'combination_eans'=>$combinationEans,
+            'note'=>'Blank identifiers are excluded. Results are read-only review candidates.'
+        ]);
     }
 
     respond(400, ['ok'=>false,'error'=>'Unsupported mode']);

@@ -47,6 +47,7 @@ A bridge não aceita SQL fornecido pelo cliente. Cada `mode` corresponde a uma q
 - `product_details`
 - `stock_summary`
 - `product_quality_audit`
+- `product_duplicates`
 
 ## Definição de carrinho abandonado
 
@@ -71,9 +72,10 @@ A auditoria assinala, entre outros:
 - meta title/meta description em falta;
 - preço não positivo;
 - produto ativo sem stock;
-- slug duplicado.
+- slug duplicado;
+- referência/EAN duplicados em produtos e combinações.
 
-As regras são indicadores de revisão, não decisões automáticas de alteração do catálogo.
+As regras são indicadores de revisão, não decisões automáticas de alteração do catálogo. A completude/anomalias e os duplicados são consultados em tools separadas para manter as queries previsíveis numa base grande.
 
 ## Segurança
 
@@ -98,17 +100,32 @@ Editar o ficheiro e preencher `PRESTASHOP_BRIDGE_TOKEN` fora do Git.
 
 ## Bridge no servidor PrestaShop
 
-Instalar `bridge/prestashop_mcp_bridge.php` no diretório protegido junto da bridge existente, juntamente com o ficheiro real `.prestashop_orders_bridge.env` já usado pelo acesso SELECT-only.
+A bridge é publicada no diretório protegido junto da bridge existente, juntamente com o ficheiro real `.prestashop_orders_bridge.env` já usado pelo acesso SELECT-only. O deployment usa um **nome versionado pelo hash do ficheiro** para evitar servir código antigo por causa do opcode cache do PHP no hosting.
 
 Exemplo:
 
 ```text
 .../public_html/shop/_orders_check/
 ├── payments_bridge.php
-├── prestashop_mcp_bridge.php
+├── prestashop_mcp_bridge_<hash>.php
 ├── .prestashop_orders_bridge.env
 └── .htaccess
 ```
+
+Configuração FTP local (fora do Git):
+
+```text
+~/.config/mcp-ftp-eletrix/runtime.env
+```
+
+com `FTP_HOST`, `FTP_USER` e `FTP_PASSWORD`, permissões `600`. Para publicar e ativar a nova versão:
+
+```bash
+python scripts/deploy_bridge.py --activate
+systemctl --user restart mcp-prestashop.service
+```
+
+O script nunca imprime a password e atualiza apenas o `PRESTASHOP_BRIDGE_URL` no runtime env local.
 
 Nunca publicar o conteúdo do `.env`. Confirmar por HTTP que o ficheiro retorna 403/404.
 
@@ -130,7 +147,7 @@ set +a
 python -c 'from prestashop_client import health_check; print(health_check()["ok"])'
 ```
 
-O resultado esperado é `True` e o utilizador SQL deve coincidir com `PRESTASHOP_EXPECTED_DB_USER`.
+O resultado esperado é `True`; o utilizador SQL deve coincidir com `PRESTASHOP_EXPECTED_DB_USER` e os grants aceites são apenas `USAGE`/`SELECT`. Se a conta ganhar uma permissão de escrita, o health falha.
 
 ## Tunnel
 

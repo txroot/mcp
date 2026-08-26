@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SRC_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+APP_DIR="${HOME}/.local/share/mcp-control-center"
+CONFIG_DIR="${HOME}/.config/mcp-control-center"
+UNIT_DIR="${HOME}/.config/systemd/user"
+
+mkdir -p "$APP_DIR" "$CONFIG_DIR" "$UNIT_DIR"
+install -m 0644 "$SRC_DIR/server.py" "$APP_DIR/server.py"
+install -m 0644 "$SRC_DIR/systemd/mcp-control-center.service" "$UNIT_DIR/mcp-control-center.service"
+
+if [[ ! -f "$CONFIG_DIR/token" ]]; then
+  python3 - <<'PY' > "$CONFIG_DIR/token"
+import secrets
+print(secrets.token_urlsafe(32))
+PY
+  chmod 600 "$CONFIG_DIR/token"
+fi
+
+python3 -m py_compile "$APP_DIR/server.py"
+systemctl --user daemon-reload
+systemctl --user enable --now mcp-control-center.service
+
+echo "MCP Control Center: http://127.0.0.1:18100"
