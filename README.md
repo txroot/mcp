@@ -104,7 +104,8 @@ Cada sessão recebe um ID aleatório `term_<hex>`, nome, PID, cwd, estado, curso
 - máximo de 16 sessões vivas;
 - buffer máximo de 2 MiB por sessão;
 - cwd limitado ao `HOME` do utilizador Unix;
-- execução com as permissões desse utilizador, sem elevação automática para root;
+- execução inicial com as permissões desse utilizador, sem elevação automática para root;
+- `sudo` interativo é suportado para utilizadores autorizados: a password é sempre introduzida localmente pelo utilizador no xterm do Control Center e nunca deve ser pedida, transmitida ou guardada pelo ChatGPT;
 - fechar/recarregar o browser não termina a sessão;
 - reiniciar/parar `mcp-terminal.service` ou reiniciar o host termina as PTYs existentes.
 
@@ -187,7 +188,7 @@ A UI do Terminal está disponível em `http://127.0.0.1:18100/terminal` e permit
 
 A API `18107` exige `X-Terminal-Admin-Token`. O browser não recebe esse token: comunica com o proxy autenticado do Control Center. O Secure Tunnel aponta exclusivamente para o MCP em `8770`.
 
-O Terminal MCP é deliberadamente poderoso: qualquer comando executável pelo utilizador Unix pode alterar ficheiros, iniciar/parar processos acessíveis e comunicar com hardware. As operações devem permanecer visíveis e auditáveis e as regras de autorização do projeto continuam a aplicar-se.
+O Terminal MCP é deliberadamente poderoso: qualquer comando executável pelo utilizador Unix pode alterar ficheiros, iniciar/parar processos acessíveis e comunicar com hardware. O serviço permite o fluxo normal de `sudo` (`NoNewPrivileges=false`) para sessões de desenvolvimento, mas não recebe privilégios root por defeito. Quando `sudo` pedir autenticação, a password deve ser digitada **apenas** pelo utilizador diretamente no terminal do Control Center; nunca deve passar pelo chat, por `terminal_write`, por ficheiros ou por logs. As operações devem permanecer visíveis e auditáveis e as regras de autorização do projeto continuam a aplicar-se.
 
 ### OpenAI Secure Tunnel e discovery
 

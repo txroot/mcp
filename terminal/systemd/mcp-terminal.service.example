@@ -12,7 +12,7 @@ Environment=TERMINAL_MCP_BUFFER_BYTES=2097152
 ExecStart=/path/to/mcp/terminal/.venv/bin/python server.py
 Restart=always
 RestartSec=3
-NoNewPrivileges=true
+NoNewPrivileges=false
 PrivateTmp=true
 
 [Install]

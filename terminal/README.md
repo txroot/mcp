@@ -72,7 +72,10 @@ When using a shell as the conversation surface, explicit markers such as `[ANDRE
 - browser write/read operations are proxied by the token-protected Control Center;
 - the loopback PTY/admin `/api/*` additionally requires a random `X-Terminal-Admin-Token` generated at install time;
 - cwd is restricted to paths inside the Unix user's home directory;
-- terminal commands execute with the permissions of the user running the service, never as root automatically;
+- terminal commands execute initially with the permissions of the user running the service;
+- `NoNewPrivileges` is deliberately disabled for this developer terminal so standard setuid tools such as `sudo` can perform their normal authentication flow; this does **not** grant root automatically;
+- if `sudo` asks for a password, the password must be typed by the user directly into the Control Center PTY. ChatGPT must never ask for it in chat, send it with `terminal_write`, store it, or copy it into logs;
+- while a password is being entered, the terminal disables echo, so the typed password is not appended to the PTY output buffer;
 - the OpenAI tunnel is a separate optional service and must expose only port 8770;
 - secrets must not be placed in Git or profile YAML files.
 

@@ -30,6 +30,8 @@ mcp = MCPServer(
         "Sessions are shared with the local MCP Control Center terminal UI. "
         "Use terminal_read cursors to avoid repeating output. For sustained interactive sessions, use terminal_wait "
         "repeatedly with the returned cursor and keep the ChatGPT turn open until the user's explicit stop marker. "
+        "Interactive sudo is supported when the host user is authorized. Never ask for, read, store, or send a sudo "
+        "password through ChatGPT or terminal_write; instruct the user to type it directly in the Control Center PTY. "
         "Keep user-visible terminal actions auditable."
     ),
 )

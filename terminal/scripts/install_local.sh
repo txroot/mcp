@@ -34,7 +34,7 @@ EnvironmentFile=$ENV_FILE
 ExecStart=$PROJECT_DIR/.venv/bin/python server.py
 Restart=always
 RestartSec=3
-NoNewPrivileges=true
+NoNewPrivileges=false
 PrivateTmp=true
 
 [Install]
