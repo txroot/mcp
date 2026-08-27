@@ -40,6 +40,7 @@ Requires=mcp-terminal.service
 [Service]
 Type=simple
 EnvironmentFile=%h/.config/tunnel-client/host-tools-runtime.env
+ExecStartPre=/bin/bash -lc 'for i in {1..50}; do curl -fsS http://127.0.0.1:18107/healthz >/dev/null 2>&1 && exit 0; sleep 0.1; done; exit 1'
 ExecStart=/usr/local/bin/tunnel-client run --profile terminal
 Restart=always
 RestartSec=3
@@ -50,6 +51,7 @@ PrivateTmp=true
 WantedBy=default.target
 UNIT
 systemctl --user daemon-reload
-systemctl --user enable --now mcp-terminal-tunnel.service
+systemctl --user enable mcp-terminal-tunnel.service
+systemctl --user restart mcp-terminal-tunnel.service
 echo "Terminal tunnel profile installed: ${TUNNEL_ID}"
 echo "Tunnel Health/Admin: http://127.0.0.1:18108"

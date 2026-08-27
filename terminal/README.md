@@ -18,6 +18,7 @@ The PTY/admin API binds only to loopback. The Control Center proxies browser ope
 
 - `terminal_create` — create a persistent PTY; blank command starts a login shell
 - `terminal_list` — list sessions and state
+- `terminal_wait` — block for new output, enabling sustained interactive ChatGPT turns
 - `terminal_read` — incremental output using a byte cursor
 - `terminal_write` — send literal terminal input
 - `terminal_resize` — resize rows/columns

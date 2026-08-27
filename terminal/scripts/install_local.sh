@@ -43,5 +43,20 @@ UNIT
 systemctl --user daemon-reload
 systemctl --user enable mcp-terminal.service
 systemctl --user restart mcp-terminal.service
+ready=0
+for _ in {1..50}; do
+  if curl -fsS "http://127.0.0.1:$ADMIN_PORT/healthz" >/dev/null 2>&1; then
+    ready=1
+    break
+  fi
+  sleep 0.1
+done
+if [[ "$ready" != "1" ]]; then
+  echo "Terminal MCP did not become healthy on port $ADMIN_PORT" >&2
+  exit 5
+fi
+if systemctl --user cat mcp-terminal-tunnel.service >/dev/null 2>&1; then
+  systemctl --user restart mcp-terminal-tunnel.service
+fi
 echo "Terminal MCP: http://127.0.0.1:$PORT/mcp"
 echo "Terminal local admin API: http://127.0.0.1:$ADMIN_PORT"

@@ -55,6 +55,10 @@ class TerminalSession:
     buffered_bytes: int = 0
     closed: bool = False
     lock: threading.RLock = field(default_factory=threading.RLock)
+    condition: threading.Condition = field(init=False, repr=False)
+
+    def __post_init__(self) -> None:
+        self.condition = threading.Condition(self.lock)
 
     def append(self, data: bytes) -> None:
         if not data:
@@ -68,6 +72,7 @@ class TerminalSession:
                 old = self.chunks.popleft()
                 self.buffered_bytes -= len(old)
                 self.cursor_start += len(old)
+            self.condition.notify_all()
 
     def read(self, after: int | None, max_bytes: int) -> dict[str, Any]:
         max_bytes = max(1, min(int(max_bytes), 262144))
@@ -85,6 +90,19 @@ class TerminalSession:
                 "truncated_before": after is not None and int(after) < self.cursor_start,
                 "has_more": end < self.cursor_end,
             }
+
+    def wait_for_output(self, after: int, max_bytes: int, timeout_seconds: float) -> dict[str, Any]:
+        timeout_seconds = max(0.1, min(float(timeout_seconds), 25.0))
+        deadline = time.monotonic() + timeout_seconds
+        with self.condition:
+            while self.cursor_end <= max(int(after), self.cursor_start) and not self.closed and self.process.poll() is None:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    break
+                self.condition.wait(timeout=remaining)
+            result = self.read(after, max_bytes)
+            result["timed_out"] = not result["output"] and not self.closed and self.process.poll() is None
+            return result
 
     def info(self) -> dict[str, Any]:
         rc = self.process.poll()
@@ -153,9 +171,10 @@ class TerminalManager:
                         break
                     raise
         finally:
-            with session.lock:
+            with session.condition:
                 session.closed = True
                 session.updated_at = time.time()
+                session.condition.notify_all()
             try:
                 os.close(session.master_fd)
             except OSError:
@@ -175,6 +194,10 @@ class TerminalManager:
     def read(self, session_id: str, after: int | None = None, max_bytes: int = 65536) -> dict[str, Any]:
         session = self.get(session_id)
         return {**session.info(), **session.read(after, max_bytes)}
+
+    def wait(self, session_id: str, after: int, max_bytes: int = 65536, timeout_seconds: float = 20.0) -> dict[str, Any]:
+        session = self.get(session_id)
+        return {**session.info(), **session.wait_for_output(after, max_bytes, timeout_seconds)}
 
     def write(self, session_id: str, data: str) -> dict[str, Any]:
         session = self.get(session_id)

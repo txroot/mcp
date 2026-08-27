@@ -82,3 +82,27 @@ def test_delete_running_session_terminates_and_removes_it():
     assert result["was_running"] is True
     assert proc.poll() is not None
     assert all(item["session_id"] != sid for item in m.list())
+
+
+def test_wait_blocks_until_new_output():
+    import threading
+
+    m = TerminalManager()
+    info = m.create(name="wait", command="cat")
+    sid = info["session_id"]
+    first = m.read(sid, after=0)
+
+    def delayed_write():
+        time.sleep(0.08)
+        m.write(sid, "wake-up-99\n")
+
+    t = threading.Thread(target=delayed_write)
+    t.start()
+    started = time.monotonic()
+    result = m.wait(sid, after=first["cursor"], timeout_seconds=1)
+    elapsed = time.monotonic() - started
+    t.join(timeout=1)
+    assert elapsed >= 0.05
+    assert result["timed_out"] is False
+    assert "wake-up-99" in result["output"]
+    m.close(sid, force=True)

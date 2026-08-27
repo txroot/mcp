@@ -28,7 +28,9 @@ mcp = MCPServer(
     instructions=(
         "Persistent interactive PTY sessions on the local Microlumin workstation. "
         "Sessions are shared with the local MCP Control Center terminal UI. "
-        "Use terminal_read cursors to avoid repeating output. Keep user-visible terminal actions auditable."
+        "Use terminal_read cursors to avoid repeating output. For sustained interactive sessions, use terminal_wait "
+        "repeatedly with the returned cursor and keep the ChatGPT turn open until the user's explicit stop marker. "
+        "Keep user-visible terminal actions auditable."
     ),
 )
 
@@ -59,6 +61,17 @@ def terminal_read(
 ) -> dict[str, Any]:
     """Read incremental PTY output. Pass the previous cursor as after_cursor on subsequent reads."""
     return manager.read(session_id, after=after_cursor, max_bytes=max_bytes)
+
+
+@mcp.tool(title="Wait for terminal output", annotations=READ)
+def terminal_wait(
+    session_id: str,
+    after_cursor: Annotated[int, Field(ge=0)],
+    timeout_seconds: Annotated[float, Field(ge=1, le=25)] = 20,
+    max_bytes: Annotated[int, Field(ge=1, le=262144)] = 65536,
+) -> dict[str, Any]:
+    """Block until new PTY output arrives, the session exits, or timeout expires. Reuse the returned cursor in a loop."""
+    return manager.wait(session_id, after=after_cursor, max_bytes=max_bytes, timeout_seconds=timeout_seconds)
 
 
 @mcp.tool(title="Write to interactive terminal", annotations=WRITE)
