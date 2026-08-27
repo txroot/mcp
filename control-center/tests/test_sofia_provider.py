@@ -77,6 +77,25 @@ def test_duplicate_capability_is_rejected():
         manifest_from_dict(raw)
 
 
+def test_scalar_risks_are_rejected():
+    raw = base_manifest()
+    raw["capabilities"][0]["risks"] = "customer_data"
+
+    with pytest.raises(ValueError, match="capability.risks"):
+        manifest_from_dict(raw)
+
+
+def test_scalar_runtime_services_are_rejected():
+    raw = base_manifest()
+    raw["runtime"] = {
+        "registry_id": "example",
+        "services": "example.service",
+    }
+
+    with pytest.raises(ValueError, match="runtime.services"):
+        manifest_from_dict(raw)
+
+
 def test_load_manifest_from_json(tmp_path: Path):
     path = tmp_path / "provider.json"
     path.write_text(json.dumps(base_manifest()), encoding="utf-8")
