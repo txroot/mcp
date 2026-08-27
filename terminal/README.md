@@ -112,6 +112,22 @@ The Control Center presets are 5 min, 15 min, 30 min, 1 h, 4 h and Unlimited. Wh
 This MCP is intentionally powerful: shell input can modify local files and services accessible to the Unix user. Treat MCP write/close/signal tools as consequential operations and keep visible/auditable terminal sessions for interactive work.
 
 
+## Automatic closed-terminal cleanup
+
+Closed/exited terminal sessions are retained for a configurable period and then removed automatically by the Terminal MCP. The default is **24 hours from `closed_at`**. The policy is global and persisted in `~/.config/terminal-mcp/settings.json`. Supported Control Center presets are Off, 6 h, 12 h, 24 h, 3 days, 7 days and 30 days. `0` disables automatic cleanup. The backend cleanup loop runs every minute and `terminal_list` also performs a cleanup pass. **Running PTYs are never auto-deleted**, regardless of inactivity. The retention clock starts when the PTY closes, not when it last produced output.
+
+## Parallel execution policy for ChatGPT
+
+The Terminal MCP should be used with bounded parallelism when work can be split safely. ChatGPT may and should create multiple terminal sessions or concurrent processes for independent reads, builds, tests and analyses, then reconcile the results. Do not parallelize work with ordering dependencies, concurrent writes to the same files/repository state, database migrations, destructive operations, or access to the same physical/shared resource unless concurrency is explicitly known to be safe. Prefer a small, purposeful number of workers rather than unbounded fan-out. This policy is included in the MCP server instructions and should be carried into the next published ChatGPT app revision.
+
+Because the current ChatGPT Business app uses a frozen published snapshot, changing these server instructions does not retroactively update that app metadata. Recreate/republish the app to guarantee the parallel-execution guidance is present in the published Plugin snapshot.
+
+## Terminal lifecycle guidance for ChatGPT
+
+Terminal persistence should be intentional. Prefer command-bound sessions that exit naturally for one-shot diagnostics. If ChatGPT opens an interactive shell, it should call `terminal_close` when the task is complete unless the session still has a concrete purpose: an active process/log stream, meaningful continuity for the next action, or an expected user/physical intervention. Closing a session preserves buffered output; deletion is a separate cleanup choice. The Control Center provides **Clear closed terminals** for bulk removal of exited sessions without touching running ones.
+
+The desktop terminal sidebar is resizable by dragging its divider (280–600 px, 340 px default), persists its width in the browser, and resets to default on divider double-click. Terminal search filters by name, short code, technical ID, cwd and state.
+
 ## Control Center semantics
 
 The browser UI is not the session owner. It attaches to sessions managed by `mcp-terminal.service`.

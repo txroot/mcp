@@ -4,6 +4,7 @@ import json
 import os
 import secrets
 import threading
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Annotated, Any
 from urllib.parse import parse_qs, urlparse
@@ -15,7 +16,7 @@ from pydantic import Field
 from terminal_manager import DEFAULT_TECHNICAL_WAIT_SECONDS, manager
 
 HOST = "127.0.0.1"
-SERVER_VERSION = "1.3.0"
+SERVER_VERSION = "1.4.0"
 ADMIN_PORT = int(os.getenv("TERMINAL_MCP_ADMIN_PORT", "18107"))
 ADMIN_TOKEN = os.getenv("TERMINAL_MCP_ADMIN_TOKEN", "")
 if not ADMIN_TOKEN:
@@ -41,7 +42,15 @@ mcp = MCPServer(
         "password through ChatGPT or terminal_write; instruct the user to type it directly in the Control Center PTY. "
         "Each session has a short human-readable terminal_code. Prefer that code in user-facing references and it may be "
         "used anywhere a session_id is accepted. Interaction timestamps are recorded as side-band actor events without "
-        "storing typed content, so sudo/password input remains secret. Keep user-visible terminal actions auditable."
+        "storing typed content, so sudo/password input remains secret. Close terminal sessions proactively when persistence "
+        "no longer has a concrete purpose. Prefer command-bound sessions that exit naturally for one-shot diagnostics; if an "
+        "interactive shell was opened, call terminal_close when the task is complete. Keep a running session only for an active "
+        "process/log stream, meaningful continuity, or expected user/physical intervention. Closing preserves buffered output; "
+        "deletion is a separate cleanup decision. Use bounded parallelism proactively when work can be split into independent "
+        "tasks: create multiple terminal sessions or concurrent processes for independent reads, builds, tests, or analyses and "
+        "reconcile their results. Do not parallelize operations with ordering dependencies, concurrent writes to the same files, "
+        "database migrations, destructive actions, or access to the same physical/shared resource unless that concurrency is "
+        "explicitly known to be safe. Keep user-visible terminal actions auditable."
     ),
 )
 
@@ -55,7 +64,7 @@ def terminal_create(
     cols: Annotated[int, Field(ge=10, le=500)] = 120,
     intervention_timeout_seconds: Annotated[int | None, Field(ge=0, le=604800)] = None,
 ) -> dict[str, Any]:
-    """Create a persistent Linux PTY session. Omit command for an interactive login shell. The intervention timeout is the logical maximum time ChatGPT should renew waits for user/physical input; 0 means no logical limit and None inherits the MCP default."""
+    """Create a persistent Linux PTY session. Omit command for an interactive login shell. Use separate sessions for independent parallel work when safe. The intervention timeout is the logical maximum time ChatGPT should renew waits for user/physical input; 0 means no logical limit and None inherits the MCP default."""
     return manager.create(name=name, cwd=cwd, command=command, rows=rows, cols=cols, intervention_timeout_seconds=intervention_timeout_seconds)
 
 
@@ -190,10 +199,14 @@ class AdminHandler(BaseHTTPRequestHandler):
                     intervention_timeout_seconds=None if timeout_value is None else int(timeout_value),
                 )); return
             if self.path == "/api/settings":
-                self._json(manager.set_default_intervention_timeout(
-                    int(data.get("default_intervention_timeout_seconds", 3600)),
-                    apply_to_default_sessions=bool(data.get("apply_to_default_sessions", True)),
-                )); return
+                if "default_intervention_timeout_seconds" in data:
+                    manager.set_default_intervention_timeout(
+                        int(data["default_intervention_timeout_seconds"]),
+                        apply_to_default_sessions=bool(data.get("apply_to_default_sessions", True)),
+                    )
+                if "closed_session_cleanup_seconds" in data:
+                    manager.set_closed_session_cleanup_seconds(int(data["closed_session_cleanup_seconds"]))
+                self._json(manager.settings()); return
             if self.path == "/api/configure-wait":
                 timeout_value = data.get("intervention_timeout_seconds")
                 self._json(manager.set_intervention_timeout(
@@ -220,8 +233,18 @@ def start_admin() -> None:
     ThreadingHTTPServer((HOST, ADMIN_PORT), AdminHandler).serve_forever()
 
 
+def cleanup_loop() -> None:
+    while True:
+        try:
+            manager.cleanup_expired_closed()
+        except Exception:
+            pass
+        time.sleep(60)
+
+
 def run() -> None:
     threading.Thread(target=start_admin, name="terminal-admin", daemon=True).start()
+    threading.Thread(target=cleanup_loop, name="terminal-cleanup", daemon=True).start()
     port = int(os.getenv("TERMINAL_MCP_PORT", "8770"))
     mcp.run("streamable-http", host=HOST, port=port, stateless_http=True)
 

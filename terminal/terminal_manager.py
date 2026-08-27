@@ -27,6 +27,8 @@ DEFAULT_INTERVENTION_TIMEOUT_SECONDS = 3600
 DEFAULT_TECHNICAL_WAIT_SECONDS = 20
 MAX_TECHNICAL_WAIT_SECONDS = 25
 MAX_INTERVENTION_TIMEOUT_SECONDS = 7 * 24 * 3600
+DEFAULT_CLOSED_SESSION_CLEANUP_SECONDS = 24 * 3600
+MAX_CLOSED_SESSION_CLEANUP_SECONDS = 365 * 24 * 3600
 DEFAULT_SETTINGS_PATH = Path(os.getenv("TERMINAL_MCP_SETTINGS_PATH", str(Path.home() / ".config/terminal-mcp/settings.json"))).expanduser()
 
 
@@ -34,6 +36,15 @@ def _normalize_intervention_timeout(value: int | float) -> int:
     seconds = int(value)
     if seconds < 0 or seconds > MAX_INTERVENTION_TIMEOUT_SECONDS:
         raise ValueError(f"intervention timeout must be between 0 and {MAX_INTERVENTION_TIMEOUT_SECONDS} seconds")
+    return seconds
+
+
+def _normalize_closed_cleanup_seconds(value: int | float) -> int:
+    seconds = int(value)
+    if seconds == 0:
+        return 0
+    if seconds < 60 or seconds > MAX_CLOSED_SESSION_CLEANUP_SECONDS:
+        raise ValueError(f"closed session cleanup must be 0 (off) or between 60 and {MAX_CLOSED_SESSION_CLEANUP_SECONDS} seconds")
     return seconds
 
 
@@ -65,6 +76,7 @@ class TerminalSession:
     process: subprocess.Popen[bytes]
     created_at: float = field(default_factory=time.time)
     updated_at: float = field(default_factory=time.time)
+    closed_at: float | None = None
     cursor_start: int = 0
     cursor_end: int = 0
     chunks: deque[bytes] = field(default_factory=deque)
@@ -185,6 +197,7 @@ class TerminalSession:
             "return_code": rc,
             "created_at": self.created_at,
             "updated_at": self.updated_at,
+            "closed_at": self.closed_at,
             "cursor_start": self.cursor_start,
             "cursor_end": self.cursor_end,
             "buffered_bytes": self.buffered_bytes,
@@ -207,6 +220,7 @@ class TerminalManager:
         self._lock = threading.RLock()
         self._settings_path = Path(settings_path or DEFAULT_SETTINGS_PATH).expanduser()
         self._default_intervention_timeout_seconds = DEFAULT_INTERVENTION_TIMEOUT_SECONDS
+        self._closed_session_cleanup_seconds = DEFAULT_CLOSED_SESSION_CLEANUP_SECONDS
         self._load_settings()
 
     def _load_settings(self) -> None:
@@ -216,8 +230,12 @@ class TerminalManager:
                 self._default_intervention_timeout_seconds = _normalize_intervention_timeout(
                     data.get("default_intervention_timeout_seconds", DEFAULT_INTERVENTION_TIMEOUT_SECONDS)
                 )
+                self._closed_session_cleanup_seconds = _normalize_closed_cleanup_seconds(
+                    data.get("closed_session_cleanup_seconds", DEFAULT_CLOSED_SESSION_CLEANUP_SECONDS)
+                )
         except Exception:
             self._default_intervention_timeout_seconds = DEFAULT_INTERVENTION_TIMEOUT_SECONDS
+            self._closed_session_cleanup_seconds = DEFAULT_CLOSED_SESSION_CLEANUP_SECONDS
 
     def _save_settings(self) -> None:
         import json
@@ -225,6 +243,7 @@ class TerminalManager:
         tmp = self._settings_path.with_suffix(".tmp")
         tmp.write_text(json.dumps({
             "default_intervention_timeout_seconds": self._default_intervention_timeout_seconds,
+            "closed_session_cleanup_seconds": self._closed_session_cleanup_seconds,
         }, indent=2) + "\n")
         os.chmod(tmp, 0o600)
         tmp.replace(self._settings_path)
@@ -235,6 +254,8 @@ class TerminalManager:
             "max_intervention_timeout_seconds": MAX_INTERVENTION_TIMEOUT_SECONDS,
             "technical_wait_timeout_seconds": 20,
             "technical_wait_timeout_seconds_max": 25,
+            "closed_session_cleanup_seconds": self._closed_session_cleanup_seconds,
+            "max_closed_session_cleanup_seconds": MAX_CLOSED_SESSION_CLEANUP_SECONDS,
         }
 
     def set_default_intervention_timeout(self, timeout_seconds: int, *, apply_to_default_sessions: bool = True) -> dict[str, Any]:
@@ -249,6 +270,33 @@ class TerminalManager:
                     if session.intervention_timeout_source == "default":
                         session.intervention_timeout_seconds = value
         return self.settings()
+
+    def set_closed_session_cleanup_seconds(self, timeout_seconds: int) -> dict[str, Any]:
+        self._closed_session_cleanup_seconds = _normalize_closed_cleanup_seconds(timeout_seconds)
+        self._save_settings()
+        self.cleanup_expired_closed()
+        return self.settings()
+
+    def cleanup_expired_closed(self, now: float | None = None) -> list[dict[str, Any]]:
+        ttl = self._closed_session_cleanup_seconds
+        if ttl == 0:
+            return []
+        current = time.time() if now is None else float(now)
+        removed: list[dict[str, Any]] = []
+        with self._lock:
+            for session_id, session in list(self._sessions.items()):
+                # Never auto-delete a running PTY. Retention starts only when the PTY closes.
+                if session.process.poll() is None or session.closed_at is None:
+                    continue
+                if current - session.closed_at < ttl:
+                    continue
+                self._sessions.pop(session_id, None)
+                removed.append({
+                    "session_id": session.session_id,
+                    "terminal_code": session.terminal_code,
+                    "closed_at": session.closed_at,
+                })
+        return removed
 
     def _new_terminal_code_locked(self) -> str:
         used = {session.terminal_code for session in self._sessions.values()}
@@ -310,7 +358,8 @@ class TerminalManager:
         finally:
             with session.condition:
                 session.closed = True
-                session.updated_at = time.time()
+                session.closed_at = time.time()
+                session.updated_at = session.closed_at
                 session.wait_started_at = None
                 session.wait_deadline = None
                 session.wait_timeout_seconds = None
@@ -333,6 +382,7 @@ class TerminalManager:
         return session
 
     def list(self) -> list[dict[str, Any]]:
+        self.cleanup_expired_closed()
         with self._lock:
             return [s.info() for s in sorted(self._sessions.values(), key=lambda x: x.created_at, reverse=True)]
 

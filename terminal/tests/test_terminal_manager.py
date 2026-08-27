@@ -250,3 +250,52 @@ def test_delete_accepts_short_terminal_code():
     assert result["session_id"] == info["session_id"]
     assert result["terminal_code"] == info["terminal_code"]
     assert all(item["session_id"] != info["session_id"] for item in m.list())
+
+
+def test_closed_session_cleanup_defaults_to_24h_and_persists(tmp_path):
+    settings = tmp_path / "settings.json"
+    m = TerminalManager(settings_path=settings)
+    assert m.settings()["closed_session_cleanup_seconds"] == 24 * 3600
+    m.set_closed_session_cleanup_seconds(7 * 24 * 3600)
+    m2 = TerminalManager(settings_path=settings)
+    assert m2.settings()["closed_session_cleanup_seconds"] == 7 * 24 * 3600
+
+
+def test_cleanup_removes_only_closed_sessions_after_ttl(tmp_path):
+    m = TerminalManager(settings_path=tmp_path / "settings.json")
+    m.set_closed_session_cleanup_seconds(60)
+    old = m.create(name="old-closed", command="true")
+    running = m.create(name="running-old", command="cat")
+    recent = m.create(name="recent-closed", command="true")
+    try:
+        for sid in (old["session_id"], recent["session_id"]):
+            session = m.get(sid)
+            end = time.time() + 2
+            while time.time() < end and session.closed_at is None:
+                time.sleep(0.01)
+            assert session.closed_at is not None
+        m.get(old["session_id"]).closed_at = time.time() - 61
+        m.get(running["session_id"]).updated_at = time.time() - 999999
+        removed = m.cleanup_expired_closed()
+        assert [item["session_id"] for item in removed] == [old["session_id"]]
+        remaining = {item["session_id"] for item in m.list()}
+        assert running["session_id"] in remaining
+        assert recent["session_id"] in remaining
+        assert old["session_id"] not in remaining
+    finally:
+        if running["session_id"] in {item["session_id"] for item in m.list()}:
+            m.delete(running["session_id"], force=True)
+
+
+def test_cleanup_can_be_disabled(tmp_path):
+    m = TerminalManager(settings_path=tmp_path / "settings.json")
+    m.set_closed_session_cleanup_seconds(0)
+    info = m.create(name="keep-closed", command="true")
+    session = m.get(info["session_id"])
+    end = time.time() + 2
+    while time.time() < end and session.closed_at is None:
+        time.sleep(0.01)
+    assert session.closed_at is not None
+    session.closed_at = time.time() - 999999
+    assert m.cleanup_expired_closed() == []
+    assert info["session_id"] in {item["session_id"] for item in m.list()}

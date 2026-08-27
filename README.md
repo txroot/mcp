@@ -176,6 +176,20 @@ O Interactive Terminal não transforma o ChatGPT num daemon autónomo. Existem d
 
 Depois de uma resposta ChatGPT ser finalizada, não existem novas chamadas ao MCP até ocorrer um novo turno do ChatGPT. Para verdadeira automação autónoma/contínua é necessário um agente/serviço próprio, e não apenas a PTY.
 
+### Limpeza automática e paralelismo
+
+O Terminal MCP elimina automaticamente sessões já fechadas depois de um período configurável, por defeito **24 horas após `closed_at`**. O Control Center disponibiliza Off, 6 h, 12 h, 24 h, 3 d, 7 d e 30 d. Sessões `running` nunca são apagadas automaticamente, mesmo que não produzam output durante muito tempo. A política fica persistida nas settings do MCP e o sweep corre periodicamente no backend.
+
+O modelo deve explorar paralelismo quando existirem tarefas independentes: múltiplas sessões/processos podem e devem ser usadas para leituras, builds, testes ou análises independentes, com reconciliação dos resultados. Não paralelizar operações com dependências de ordem, escritas concorrentes sobre os mesmos ficheiros/estado Git, migrações de base de dados, operações destrutivas ou acesso ao mesmo recurso físico/partilhado sem garantia explícita de segurança. Usar paralelismo limitado e intencional.
+
+Esta regra está nas instruções do MCP 1.4.0. Como o app ChatGPT Business publicado usa um snapshot congelado, a próxima recriação/publicação do Plugin deve incluir explicitamente esta política para garantir que o modelo a recebe também pelo metadata publicado.
+
+### Gestão da lista de terminais
+
+A sidebar de terminais no desktop é redimensionável com o rato entre 280 e 600 px (340 px por defeito), guarda a largura no browser e permite repor o default com duplo clique no separador. A pesquisa compacta filtra por nome, código curto, ID técnico, cwd ou estado. **Clear closed terminals** remove em bloco apenas sessões terminadas, após confirmação, sem tocar nas sessões `running`.
+
+Regra para o ChatGPT: persistência deve ser intencional. Para diagnósticos one-shot, preferir sessões ligadas ao comando que terminam naturalmente. Se abrir uma shell interativa, deve chamar `terminal_close` quando o trabalho acabar, exceto quando exista um motivo concreto para manter a PTY: processo/log ativo, continuidade útil ou intervenção física/do utilizador esperada. Fechar preserva o buffer; apagar é uma decisão de limpeza separada.
+
 ### MCP Control Center
 
 A UI do Terminal está disponível em `http://127.0.0.1:18100/terminal` e permite:
