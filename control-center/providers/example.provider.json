@@ -1,0 +1,28 @@
+{
+  "provider_id": "provider:example/001",
+  "name": "Example Provider",
+  "version": "0.1.0",
+  "description": "Reference manifest for Sofia OS providers.",
+  "gateway_required": true,
+  "direct_external_exposure": false,
+  "health": {
+    "process_health": true,
+    "provider_health": true,
+    "source_health": true,
+    "gateway_health": true
+  },
+  "capabilities": [
+    {
+      "name": "example.read",
+      "enforcement": "FULL",
+      "risks": [],
+      "requires_approval": false
+    },
+    {
+      "name": "example.write",
+      "enforcement": "CONTROLLED",
+      "risks": ["external_write"],
+      "requires_approval": true
+    }
+  ]
+}
