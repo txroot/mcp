@@ -14,7 +14,8 @@ O Control Center corre apenas em `127.0.0.1:18100` e reúne numa única UI:
 - Start / Stop / Restart;
 - logs;
 - botão **Info** com descoberta dinâmica das MCP tools realmente expostas pelo serviço;
-- ligação à Admin UI técnica dos tunnels quando existe.
+- ligação à Admin UI técnica dos tunnels quando existe;
+- consola **Terminal** integrada para sessões PTY partilhadas do Interactive Terminal MCP.
 
 A separação é de **serviços**, não de aplicações de administração: cada MCP continua independente, mas a operação diária é centralizada aqui.
 
@@ -27,6 +28,7 @@ A separação é de **serviços**, não de aplicações de administração: cada
 | Memory | `127.0.0.1:8765/mcp` | `18103` | Online |
 | Google Analytics | `127.0.0.1:8767/mcp` | `18104` | Online |
 | PrestaShop | `127.0.0.1:8769/mcp` | `18105` | Online |
+| Interactive Terminal | `127.0.0.1:8770/mcp` | local PTY API `18107`; tunnel/admin `18108` | Online |
 
 As portas são configuração do host, não uma exigência do protocolo.
 

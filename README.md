@@ -25,6 +25,7 @@ O repositório **não guarda** passwords, tokens, API keys, ficheiros de credenc
 |---|---|---|
 | PrestaShop Eletrix | Operacional | Operação, encomendas, carrinhos, catálogo, stock e auditoria de qualidade |
 | MCP Control Center | Operacional | Gestão central dos MCPs locais |
+| Interactive Terminal | Operacional | PTYs persistentes partilhados entre ChatGPT e Control Center |
 
 Os restantes MCPs locais serão migrados para esta estrutura progressivamente.
 
@@ -38,6 +39,7 @@ mcp/
 │   ├── inventory.md
 │   └── migration.md
 ├── control-center/
+├── terminal/
 └── prestashop/
     ├── README.md
     ├── server.py

@@ -1,6 +1,6 @@
 # MCP inventory
 
-Inventário do host de desenvolvimento em 2026-08-26.
+Inventário do host de desenvolvimento atualizado em 2026-08-27.
 
 | MCP | Código no `txroot/mcp` | Serviço local | Tunnel |
 |---|---|---|---|
@@ -10,6 +10,7 @@ Inventário do host de desenvolvimento em 2026-08-26.
 | Google Analytics | Migração para repo pendente | `mcp-google-analytics.service` | `mcp-google-analytics-tunnel.service` |
 | PrestaShop | **Sim** | `mcp-prestashop.service` | `mcp-prestashop-tunnel.service` (`prestashop`) |
 | MCP Control Center | **Sim** | `mcp-control-center.service` | não aplicável |
+| Interactive Terminal | **Sim** | `mcp-terminal.service` | `mcp-terminal-tunnel.service` (`terminal`) |
 
 ## Regra
 

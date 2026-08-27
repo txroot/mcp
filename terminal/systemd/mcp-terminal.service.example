@@ -1,0 +1,19 @@
+[Unit]
+Description=Microlumin Interactive Terminal MCP
+After=default.target
+
+[Service]
+Type=simple
+WorkingDirectory=/path/to/mcp/terminal
+Environment=TERMINAL_MCP_PORT=8770
+Environment=TERMINAL_MCP_ADMIN_PORT=18107
+Environment=TERMINAL_MCP_MAX_SESSIONS=16
+Environment=TERMINAL_MCP_BUFFER_BYTES=2097152
+ExecStart=/path/to/mcp/terminal/.venv/bin/python server.py
+Restart=always
+RestartSec=3
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=default.target

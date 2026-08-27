@@ -22,6 +22,10 @@ HOST = "127.0.0.1"
 PORT = 18100
 TOKEN_PATH = HOME / ".config/mcp-control-center/token"
 TOKEN = TOKEN_PATH.read_text().strip()
+TERMINAL_ADMIN_BASE = "http://127.0.0.1:18107"
+TERMINAL_ADMIN_ENV = HOME / ".config/terminal-mcp/runtime.env"
+STATIC_DIR = Path(__file__).resolve().parent / "static"
+TERMINAL_PAGE_PATH = Path(__file__).resolve().parent / "terminal.html"
 
 MCP_REGISTRY = {
     "host-tools": {
@@ -80,6 +84,18 @@ MCP_REGISTRY = {
         "kind": "HTTP + Tunnel",
         "tunnel_configured": True,
         "tools_probe": {"type": "http", "python": str(HOME / "chatgpt-workspace/mcp/prestashop/.venv/bin/python"), "url": "http://127.0.0.1:8769/mcp"},
+    },
+    "terminal": {
+        "name": "Interactive Terminal",
+        "description": "Shared persistent PTY sessions for ChatGPT and the local Control Center",
+        "services": ["mcp-terminal.service", "mcp-terminal-tunnel.service"],
+        "profile": "terminal",
+        "mcp": "http://127.0.0.1:8770/mcp",
+        "health": "http://127.0.0.1:18108",
+        "admin": "http://127.0.0.1:18108/ui",
+        "kind": "HTTP + Tunnel + local PTY API",
+        "tunnel_configured": True,
+        "tools_probe": {"type": "http", "python": str(HOME / "chatgpt-workspace/mcp/terminal/.venv/bin/python"), "url": "http://127.0.0.1:8770/mcp"},
     },
 }
 
@@ -141,7 +157,7 @@ def http_probe(base: str) -> dict:
     result = {"live": False, "ready": False, "live_text": "offline", "ready_text": "offline"}
     for key, endpoint in (("live", "/healthz"), ("ready", "/readyz")):
         try:
-            req = urllib.request.Request(base + endpoint, headers={"User-Agent": "mcp-control-center/1"})
+            req = urllib.request.Request(base + endpoint, headers={"User-Agent": "mcp-control-center/1", "X-Terminal-Admin-Token": terminal_admin_token()})
             with urllib.request.urlopen(req, timeout=1.5) as r:
                 body = r.read(256).decode("utf-8", "replace").strip()
                 ok = 200 <= r.status < 300
@@ -434,6 +450,52 @@ def logs_for(ident: str, lines: int = 120) -> str:
     return redact("\n".join(chunks))[-120000:]
 
 
+def terminal_admin_token() -> str:
+    try:
+        for raw in TERMINAL_ADMIN_ENV.read_text().splitlines():
+            if raw.startswith("TERMINAL_MCP_ADMIN_TOKEN="):
+                return raw.split("=", 1)[1].strip()
+    except Exception:
+        pass
+    return ""
+
+
+def terminal_proxy_get(path: str) -> tuple[int, dict]:
+    try:
+        req = urllib.request.Request(TERMINAL_ADMIN_BASE + path, headers={"User-Agent": "mcp-control-center/1", "X-Terminal-Admin-Token": terminal_admin_token()})
+        with urllib.request.urlopen(req, timeout=3) as resp:
+            return resp.status, json.loads(resp.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        try:
+            return exc.code, json.loads(exc.read().decode("utf-8"))
+        except Exception:
+            return exc.code, {"error": f"Terminal MCP HTTP {exc.code}"}
+    except Exception as exc:
+        return 503, {"error": f"Terminal MCP unavailable: {type(exc).__name__}"}
+
+
+def terminal_proxy_post(path: str, payload: dict) -> tuple[int, dict]:
+    try:
+        raw = json.dumps(payload).encode("utf-8")
+        req = urllib.request.Request(
+            TERMINAL_ADMIN_BASE + path, data=raw, method="POST",
+            headers={"Content-Type": "application/json", "User-Agent": "mcp-control-center/1", "X-Terminal-Admin-Token": terminal_admin_token()},
+        )
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            return resp.status, json.loads(resp.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        try:
+            return exc.code, json.loads(exc.read().decode("utf-8"))
+        except Exception:
+            return exc.code, {"error": f"Terminal MCP HTTP {exc.code}"}
+    except Exception as exc:
+        return 503, {"error": f"Terminal MCP unavailable: {type(exc).__name__}"}
+
+
+def terminal_page() -> str:
+    return TERMINAL_PAGE_PATH.read_text().replace("__TOKEN__", json.dumps(TOKEN)).replace("__HOME__", html.escape(str(HOME), quote=True))
+
+
 HTML = r'''<!doctype html>
 <html lang="en">
 <head>
@@ -455,7 +517,7 @@ HTML = r'''<!doctype html>
 </head>
 <body><div class="shell">
 <div class="brandbar"><div class="brand"><span class="brandmark" aria-hidden="true"></span><span>Microlumin</span><span class="brandsep">·</span><span class="brandsoft">Local Infrastructure</span></div></div>
-<div class="header"><h1 class="title">MCP Control Center</h1><div class="toolbar"><div class="auto" title="Status refreshes automatically every 5 seconds"><span>Auto-refresh</span><span class="live-dot"></span><strong>5s</strong></div><span class="divider"></span><button id="refreshBtn" class="iconbtn" type="button" onclick="refresh(true)" title="Refresh now" aria-label="Refresh now"><svg viewBox="0 0 24 24"><path d="M20 11a8.1 8.1 0 0 0-15.5-2M4 4v5h5"></path><path d="M4 13a8.1 8.1 0 0 0 15.5 2M20 20v-5h-5"></path></svg></button><span class="divider"></span><div class="helpwrap"><button class="iconbtn" type="button" onclick="toggleHelp(event)" title="Help" aria-label="Help"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"></circle><path d="M9.8 9a2.35 2.35 0 0 1 4.55.75c0 1.75-2.35 2.05-2.35 3.8"></path><path d="M12 17h.01"></path></svg></button><div id="helpBox" class="helpbox"><h3>About this dashboard</h3><p>Monitors local MCP servers and OpenAI Secure Tunnels on this workstation. Status refreshes every 5 seconds.</p><p>Service actions are restricted to registered units. The dashboard listens only on <code>127.0.0.1</code>.</p><p><strong>Online</strong> means registered services are running and ready. <strong>Degraded</strong> means the MCP is reachable but a dependency or tunnel still needs attention.</p><p>Stopping or restarting Host Tools temporarily interrupts remote access from ChatGPT.</p></div></div></div></div>
+<div class="header"><h1 class="title">MCP Control Center</h1><div class="toolbar"><a class="btn link" href="/terminal">Terminal</a><span class="divider"></span><div class="auto" title="Status refreshes automatically every 5 seconds"><span>Auto-refresh</span><span class="live-dot"></span><strong>5s</strong></div><span class="divider"></span><button id="refreshBtn" class="iconbtn" type="button" onclick="refresh(true)" title="Refresh now" aria-label="Refresh now"><svg viewBox="0 0 24 24"><path d="M20 11a8.1 8.1 0 0 0-15.5-2M4 4v5h5"></path><path d="M4 13a8.1 8.1 0 0 0 15.5 2M20 20v-5h-5"></path></svg></button><span class="divider"></span><div class="helpwrap"><button class="iconbtn" type="button" onclick="toggleHelp(event)" title="Help" aria-label="Help"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"></circle><path d="M9.8 9a2.35 2.35 0 0 1 4.55.75c0 1.75-2.35 2.05-2.35 3.8"></path><path d="M12 17h.01"></path></svg></button><div id="helpBox" class="helpbox"><h3>About this dashboard</h3><p>Monitors local MCP servers and OpenAI Secure Tunnels on this workstation. Status refreshes every 5 seconds.</p><p>Service actions are restricted to registered units. The dashboard listens only on <code>127.0.0.1</code>.</p><p><strong>Online</strong> means registered services are running and ready. <strong>Degraded</strong> means the MCP is reachable but a dependency or tunnel still needs attention.</p><p>Stopping or restarting Host Tools temporarily interrupts remote access from ChatGPT.</p></div></div></div></div>
 <div class="summary"><div class="metric online"><b id="mOnline">—</b><span>Online</span><i class="pulse"><svg viewBox="0 0 28 18"><path d="M1 10h5l3-8 5 15 4-9 3 2h6"></path></svg></i></div><div class="metric degraded"><b id="mDegraded">—</b><span>Degraded</span><i class="pulse"><svg viewBox="0 0 28 18"><path d="M1 10h5l3-8 5 15 4-9 3 2h6"></path></svg></i></div><div class="metric offline"><b id="mOffline">—</b><span>Offline</span><i class="pulse"><svg viewBox="0 0 28 18"><path d="M1 10h5l3-8 5 15 4-9 3 2h6"></path></svg></i></div><div class="metric profiles"><b id="mProfiles">—</b><span>Tunnel profiles</span><i class="pulse"><svg viewBox="0 0 28 18"><path d="M1 10h5l3-8 5 15 4-9 3 2h6"></path></svg></i></div></div>
 <div id="grid" class="grid"></div>
 <div id="detectedSection" class="section"><h2>Detected but unmanaged</h2><div class="detected" id="detected"></div></div>
@@ -509,6 +571,29 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         p = urlparse(self.path)
+        if p.path == "/terminal":
+            body = terminal_page().encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Security-Policy", "default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; connect-src 'self'; img-src 'self' data:; frame-ancestors 'none'")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("X-Frame-Options", "DENY")
+            self.send_header("X-Content-Type-Options", "nosniff")
+            self.end_headers(); self.wfile.write(body); return
+        if p.path.startswith("/static/"):
+            name = p.path.rsplit("/", 1)[-1]
+            allowed = {"xterm.js": "application/javascript; charset=utf-8", "addon-fit.js": "application/javascript; charset=utf-8", "xterm.css": "text/css; charset=utf-8"}
+            if name not in allowed:
+                self.send_error(404); return
+            target = STATIC_DIR / name
+            body = target.read_bytes()
+            self.send_response(200); self.send_header("Content-Type", allowed[name]); self.send_header("Cache-Control", "public, max-age=86400"); self.end_headers(); self.wfile.write(body); return
+        if p.path.startswith("/api/terminal/"):
+            if not self._authorized(): self._json({"error":"unauthorized"},403); return
+            route = "/api" + p.path.removeprefix("/api/terminal")
+            if p.query: route += "?" + p.query
+            status, payload = terminal_proxy_get(route)
+            self._json(payload, status); return
         if p.path == "/admin":
             ident = parse_qs(p.query).get("id", [""])[0]
             page = admin_shell(ident)
@@ -547,11 +632,16 @@ class Handler(BaseHTTPRequestHandler):
         self._json({"error":"not found"},404)
 
     def do_POST(self):
-        if self.path != "/api/action": self._json({"error":"not found"},404); return
         if not self._authorized(): self._json({"ok":False,"message":"unauthorized"},403); return
         try:
-            n = min(int(self.headers.get("Content-Length", "0")), 4096)
+            limit = 1048576 if self.path.startswith("/api/terminal/") else 4096
+            n = min(int(self.headers.get("Content-Length", "0")), limit)
             data = json.loads(self.rfile.read(n) or b"{}")
+            if self.path.startswith("/api/terminal/"):
+                route = "/api" + self.path.removeprefix("/api/terminal")
+                status, payload = terminal_proxy_post(route, data)
+                self._json(payload, status); return
+            if self.path != "/api/action": self._json({"error":"not found"},404); return
             ok, msg = service_action(str(data.get("id","")), str(data.get("action","")))
             self._json({"ok":ok,"message":msg or ("Concluído" if ok else "Falhou")},200 if ok else 500)
         except Exception as exc:

@@ -36,3 +36,16 @@ As portas são detalhes de deployment e devem ser documentadas, mas não assumid
 ## Segredos
 
 Nunca entram no repositório. Usar ficheiros em `~/.config/<mcp>/` com `chmod 600`, `EnvironmentFile=` do systemd ou secret stores equivalentes.
+
+
+## Interactive Terminal MCP
+
+O terminal interativo usa duas superfícies sobre o mesmo gestor de PTYs:
+
+```text
+ChatGPT -- OpenAI tunnel --> MCP :8770 --+
+                                         |
+MCP Control Center :18100 --> local API :18107 --> PTY manager --> shell/processo
+```
+
+A API local de PTY (`18107`) e o Control Center permanecem em loopback e não são publicados pelo tunnel. O browser usa o token do Control Center, que faz proxy das operações. A sessão é única e partilhada: input do utilizador e input via MCP chegam ao mesmo PTY.
