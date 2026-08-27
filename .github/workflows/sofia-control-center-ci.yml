@@ -51,6 +51,7 @@ jobs:
             control-center/server.py \
             control-center/sofia_provider.py \
             control-center/sofia_registry.py \
+            control-center/sofia_source_health.py \
             control-center/sofia_server.py
 
       - name: Validate provider manifests
@@ -69,10 +70,21 @@ jobs:
           )
 
           assert "provider:prestashop/001" in result.manifests
-          assert result.migrated_ids == ("prestashop",)
-          assert result.registry["prestashop"]["provider_manifest"]["gateway_required"] is True
-          assert result.registry["prestashop"]["provider_manifest"]["direct_external_exposure"] is False
-          print(f"validated_manifests={len(result.manifests)} migrated={','.join(result.migrated_ids)}")
+          assert "provider:google-analytics/001" in result.manifests
+          assert result.migrated_ids == ("google-analytics", "prestashop")
+
+          for registry_id in result.migrated_ids:
+              metadata = result.registry[registry_id]["provider_manifest"]
+              assert metadata["gateway_required"] is True
+              assert metadata["direct_external_exposure"] is False
+              assert result.registry[registry_id]["source_probe"]
+
+          assert result.registry["google-analytics"]["source_probe"] == "google_analytics"
+          assert result.registry["prestashop"]["source_probe"] == "prestashop"
+          print(
+              f"validated_manifests={len(result.manifests)} "
+              f"migrated={','.join(result.migrated_ids)}"
+          )
           PY
 
       - name: Run unit tests
