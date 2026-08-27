@@ -6,6 +6,9 @@ import pytest
 from sofia_registry import load_control_center_registry
 
 
+CONTROL_CENTER_ROOT = Path(__file__).resolve().parents[1]
+
+
 def runtime_manifest(registry_id: str = "prestashop") -> dict:
     return {
         "provider_id": "provider:prestashop/001",
@@ -119,3 +122,18 @@ def test_invalid_manifest_fails_closed(tmp_path: Path):
 
     with pytest.raises(ValueError, match="direct_external_exposure"):
         load_control_center_registry({}, providers, tmp_path)
+
+
+def test_repository_prestashop_manifest_is_runtime_ready(tmp_path: Path):
+    result = load_control_center_registry(
+        legacy_registry={},
+        providers_dir=CONTROL_CENTER_ROOT / "providers",
+        home=tmp_path / "home",
+    )
+
+    assert result.migrated_ids == ("prestashop",)
+    provider = result.registry["prestashop"]
+    assert provider["provider_manifest"]["provider_id"] == "provider:prestashop/001"
+    assert provider["provider_manifest"]["gateway_required"] is True
+    assert provider["provider_manifest"]["direct_external_exposure"] is False
+    assert provider["tools_probe"]["python"].endswith("chatgpt-workspace/mcp/prestashop/.venv/bin/python")
