@@ -68,6 +68,7 @@
     "kind": "HTTP + Tunnel",
     "tunnel_configured": true,
     "probe_type": "http",
+    "source_probe": "prestashop",
     "tools_probe": {
       "type": "http",
       "python": "${HOME}/chatgpt-workspace/mcp/prestashop/.venv/bin/python",
