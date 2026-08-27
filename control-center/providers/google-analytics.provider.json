@@ -1,0 +1,36 @@
+{
+  "provider_id": "provider:google-analytics/001",
+  "name": "Google Analytics",
+  "version": "0.1.0",
+  "description": "Eletrix GA4 read-only provider.",
+  "gateway_required": true,
+  "direct_external_exposure": false,
+  "health": {
+    "process_health": true,
+    "provider_health": true,
+    "source_health": true,
+    "gateway_health": true
+  },
+  "capabilities": [
+    {"name": "google_analytics.health", "enforcement": "FULL", "risks": [], "requires_approval": false},
+    {"name": "google_analytics.report.read", "enforcement": "FULL", "risks": ["analytics_data"], "requires_approval": false},
+    {"name": "google_analytics.metadata.read", "enforcement": "FULL", "risks": [], "requires_approval": false}
+  ],
+  "runtime": {
+    "registry_id": "google-analytics",
+    "services": ["mcp-google-analytics.service", "mcp-google-analytics-tunnel.service"],
+    "profile": "google-analytics",
+    "mcp": "http://127.0.0.1:8767/mcp",
+    "health": "http://127.0.0.1:18104",
+    "admin": "http://127.0.0.1:18104/ui",
+    "kind": "HTTP + Tunnel",
+    "tunnel_configured": true,
+    "probe_type": "http",
+    "source_probe": "google_analytics",
+    "tools_probe": {
+      "type": "http",
+      "python": "${HOME}/chatgpt-workspace/google-analytics-mcp/.venv/bin/python",
+      "url": "http://127.0.0.1:8767/mcp"
+    }
+  }
+}
