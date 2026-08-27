@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
@@ -48,6 +49,7 @@ class RuntimeContract:
     kind: str = ""
     tunnel_configured: bool = False
     probe_type: str = "http"
+    source_probe: str = ""
     tools_probe: dict[str, Any] | None = None
 
     def validate(self) -> None:
@@ -62,6 +64,8 @@ class RuntimeContract:
             errors.append("runtime.services cannot contain duplicates")
         if self.probe_type not in {"http", "tcp"}:
             errors.append("runtime.probe_type must be 'http' or 'tcp'")
+        if self.source_probe and not re.fullmatch(r"[a-z0-9_]+", self.source_probe):
+            errors.append("runtime.source_probe must be a symbolic lowercase identifier")
         if errors:
             raise ValueError("; ".join(errors))
 
@@ -141,6 +145,7 @@ def manifest_from_dict(raw: dict[str, Any]) -> ProviderManifest:
             kind=str(runtime_raw.get("kind", "")),
             tunnel_configured=bool(runtime_raw.get("tunnel_configured", False)),
             probe_type=str(runtime_raw.get("probe_type", "http")),
+            source_probe=str(runtime_raw.get("source_probe", "")),
             tools_probe=dict(runtime_raw["tools_probe"]) if runtime_raw.get("tools_probe") else None,
         )
 
