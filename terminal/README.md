@@ -39,6 +39,8 @@ Published ChatGPT Business apps can keep an older tool snapshot. To keep those i
 
 This compatibility path is intentionally limited to the MCP tool layer; the Control Center REST output endpoint remains non-blocking, so browser polling is unaffected. New app revisions should prefer the explicit `terminal_wait` tool.
 
+**Operational validation (2026-08-27):** using the still-published 7-tool ChatGPT snapshot, an incremental `terminal_read(after_cursor=...)` blocked until delayed PTY output arrived and returned the expected marker. A silent 20-second cycle returned `timed_out=true` while keeping `intervention_timed_out=false`, `wait_state=waiting`, the one-hour logical deadline active, and the PTY running. Input after that technical timeout was accepted normally. The user then confirmed the workflow works in real use.
+
 ## Sustained ChatGPT interaction (`terminal_wait`)
 
 A persistent PTY and a persistent ChatGPT turn are different things. The PTY survives browser detach, but ChatGPT only continues calling tools while its current response is still running.
