@@ -56,6 +56,10 @@ class RuntimeContract:
             errors.append("runtime.registry_id is required")
         if not self.services:
             errors.append("runtime.services must contain at least one service")
+        if any(not service.strip() for service in self.services):
+            errors.append("runtime.services cannot contain empty service names")
+        if len(set(self.services)) != len(self.services):
+            errors.append("runtime.services cannot contain duplicates")
         if self.probe_type not in {"http", "tcp"}:
             errors.append("runtime.probe_type must be 'http' or 'tcp'")
         if errors:
@@ -104,8 +108,12 @@ class ProviderManifest:
         return next((item for item in self.capabilities if item.name == name), None)
 
 
-def _as_tuple(values: Iterable[str] | None) -> tuple[str, ...]:
-    return tuple(str(value) for value in (values or ()))
+def _as_tuple(values: Iterable[str] | None, field_name: str) -> tuple[str, ...]:
+    if values is None:
+        return ()
+    if isinstance(values, (str, bytes)):
+        raise ValueError(f"{field_name} must be an array")
+    return tuple(str(value) for value in values)
 
 
 def manifest_from_dict(raw: dict[str, Any]) -> ProviderManifest:
@@ -113,7 +121,7 @@ def manifest_from_dict(raw: dict[str, Any]) -> ProviderManifest:
         Capability(
             name=str(item["name"]),
             enforcement=EnforcementLevel(str(item["enforcement"])),
-            risks=_as_tuple(item.get("risks")),
+            risks=_as_tuple(item.get("risks"), "capability.risks"),
             requires_approval=bool(item.get("requires_approval", False)),
         )
         for item in raw.get("capabilities", [])
@@ -125,7 +133,7 @@ def manifest_from_dict(raw: dict[str, Any]) -> ProviderManifest:
     if runtime_raw is not None:
         runtime = RuntimeContract(
             registry_id=str(runtime_raw["registry_id"]),
-            services=_as_tuple(runtime_raw.get("services")),
+            services=_as_tuple(runtime_raw.get("services"), "runtime.services"),
             profile=str(runtime_raw.get("profile", "")),
             mcp=str(runtime_raw.get("mcp", "")),
             health_endpoint=str(runtime_raw.get("health", "")),
