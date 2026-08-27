@@ -42,6 +42,7 @@ def _runtime_to_legacy_config(manifest: ProviderManifest, home: Path, source: Pa
         "kind": runtime.kind,
         "tunnel_configured": runtime.tunnel_configured,
         "probe_type": runtime.probe_type,
+        "source_probe": runtime.source_probe,
         "provider_manifest": {
             "provider_id": manifest.provider_id,
             "version": manifest.version,
