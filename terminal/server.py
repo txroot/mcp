@@ -12,10 +12,10 @@ from mcp.server import MCPServer
 from mcp.types import ToolAnnotations
 from pydantic import Field
 
-from terminal_manager import manager
+from terminal_manager import DEFAULT_TECHNICAL_WAIT_SECONDS, manager
 
 HOST = "127.0.0.1"
-SERVER_VERSION = "1.2.0"
+SERVER_VERSION = "1.2.1"
 ADMIN_PORT = int(os.getenv("TERMINAL_MCP_ADMIN_PORT", "18107"))
 ADMIN_TOKEN = os.getenv("TERMINAL_MCP_ADMIN_TOKEN", "")
 if not ADMIN_TOKEN:
@@ -31,8 +31,10 @@ mcp = MCPServer(
     instructions=(
         "Persistent interactive PTY sessions on the local Microlumin workstation. "
         "Sessions are shared with the local MCP Control Center terminal UI. "
-        "Use terminal_read cursors to avoid repeating output. For sustained interactive sessions, use terminal_wait "
-        "repeatedly with the returned cursor and keep the ChatGPT turn open until the user's explicit stop marker or "
+        "Use terminal_read cursors to avoid repeating output. For compatibility with published schemas that do not expose "
+        "terminal_wait, terminal_read without after_cursor is immediate, while terminal_read with after_cursor performs a short "
+        "renewable blocking wait; repeat it while timed_out=true and intervention_timed_out=false. When available, terminal_wait "
+        "is the explicit equivalent. Keep the ChatGPT turn open until the user's explicit stop marker or "
         "intervention_timed_out=true. The per-session intervention timeout defaults to one hour and can be overridden "
         "for a wait operation with intervention_timeout_seconds; the technical MCP wait remains short and renewable. "
         "Interactive sudo is supported when the host user is authorized. Never ask for, read, store, or send a sudo "
@@ -67,8 +69,15 @@ def terminal_read(
     after_cursor: Annotated[int | None, Field(ge=0)] = None,
     max_bytes: Annotated[int, Field(ge=1, le=262144)] = 65536,
 ) -> dict[str, Any]:
-    """Read incremental PTY output. Pass the previous cursor as after_cursor on subsequent reads."""
-    return manager.read(session_id, after=after_cursor, max_bytes=max_bytes)
+    """Read PTY output. Without after_cursor this is an immediate snapshot. With after_cursor it is a backward-compatible short blocking wait; repeat while timed_out=true and intervention_timed_out=false."""
+    if after_cursor is None:
+        result = manager.read(session_id, after=None, max_bytes=max_bytes)
+        return {**result, "timed_out": False, "compatibility_mode": "snapshot"}
+    result = manager.wait(
+        session_id, after=after_cursor, max_bytes=max_bytes,
+        timeout_seconds=DEFAULT_TECHNICAL_WAIT_SECONDS,
+    )
+    return {**result, "compatibility_mode": "incremental_read_wait"}
 
 
 @mcp.tool(title="Wait for terminal output", annotations=READ)

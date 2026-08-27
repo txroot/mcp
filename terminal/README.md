@@ -33,6 +33,12 @@ Each session has a random `term_<hex>` ID and a bounded in-memory output ring bu
 Sessions survive browser detach/reload but not a restart of `mcp-terminal.service` or the host. Systemd terminates the service cgroup, including child PTY processes, on restart/stop.
 
 
+## Compatibility with frozen ChatGPT app schemas
+
+Published ChatGPT Business apps can keep an older tool snapshot. To keep those installations useful, `terminal_read` is backward-compatible: a call **without** `after_cursor` is an immediate snapshot; a call **with** `after_cursor` performs the same short renewable wait used by `terminal_wait` (20 seconds by default). If it returns `timed_out=true` and `intervention_timed_out=false`, call `terminal_read` again with the returned cursor. The logical intervention deadline still comes from the session policy (1 hour by default), and expiry never closes the PTY.
+
+This compatibility path is intentionally limited to the MCP tool layer; the Control Center REST output endpoint remains non-blocking, so browser polling is unaffected. New app revisions should prefer the explicit `terminal_wait` tool.
+
 ## Sustained ChatGPT interaction (`terminal_wait`)
 
 A persistent PTY and a persistent ChatGPT turn are different things. The PTY survives browser detach, but ChatGPT only continues calling tools while its current response is still running.

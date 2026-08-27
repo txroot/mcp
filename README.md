@@ -226,3 +226,7 @@ Ver [`docs/migration.md`](docs/migration.md). Cada subdiretório tem também ins
 ## Segurança
 
 Se um segredo for acidentalmente commitado, removê-lo do histórico **não é suficiente**: a credencial deve ser imediatamente revogada/rotacionada.
+
+### Compatibilidade com schemas publicados antigos
+
+Para instalações ChatGPT Business cujo snapshot ainda não exponha `terminal_wait`, a tool MCP `terminal_read` tem um modo retrocompatível: sem `after_cursor` faz leitura imediata; com `after_cursor` bloqueia por uma janela técnica curta (20 s) e devolve `timed_out` / `intervention_timed_out`. O caller renova `terminal_read` com o cursor devolvido enquanto a intervenção lógica continuar ativa. O endpoint REST usado pelo Control Center continua não bloqueante.

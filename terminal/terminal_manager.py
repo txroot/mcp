@@ -21,6 +21,8 @@ HOME = Path.home().resolve()
 MAX_BUFFER_BYTES = int(os.getenv("TERMINAL_MCP_BUFFER_BYTES", str(2 * 1024 * 1024)))
 MAX_SESSIONS = int(os.getenv("TERMINAL_MCP_MAX_SESSIONS", "16"))
 DEFAULT_INTERVENTION_TIMEOUT_SECONDS = 3600
+DEFAULT_TECHNICAL_WAIT_SECONDS = 20
+MAX_TECHNICAL_WAIT_SECONDS = 25
 MAX_INTERVENTION_TIMEOUT_SECONDS = 7 * 24 * 3600
 DEFAULT_SETTINGS_PATH = Path(os.getenv("TERMINAL_MCP_SETTINGS_PATH", str(Path.home() / ".config/terminal-mcp/settings.json"))).expanduser()
 
@@ -108,7 +110,7 @@ class TerminalSession:
             }
 
     def wait_for_output(self, after: int, max_bytes: int, timeout_seconds: float) -> dict[str, Any]:
-        timeout_seconds = max(0.1, min(float(timeout_seconds), 25.0))
+        timeout_seconds = max(0.1, min(float(timeout_seconds), float(MAX_TECHNICAL_WAIT_SECONDS)))
         deadline = time.monotonic() + timeout_seconds
         with self.condition:
             while self.cursor_end <= max(int(after), self.cursor_start) and not self.closed and self.process.poll() is None:
@@ -160,6 +162,8 @@ class TerminalSession:
             "buffered_bytes": self.buffered_bytes,
             "intervention_timeout_seconds": self.intervention_timeout_seconds,
             "intervention_timeout_source": self.intervention_timeout_source,
+            "incremental_read_is_blocking": True,
+            "incremental_read_wait_seconds": DEFAULT_TECHNICAL_WAIT_SECONDS,
             "wait_started_at": started,
             "wait_deadline": deadline,
             "wait_timeout_seconds": logical_timeout,
