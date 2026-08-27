@@ -52,3 +52,33 @@ def test_cwd_outside_home_is_rejected(tmp_path):
         assert "cwd must be inside" in str(exc)
     else:
         raise AssertionError("outside-home cwd accepted")
+
+def test_delete_exited_session_removes_it():
+    m = TerminalManager()
+    info = m.create(name="done", command="true")
+    sid = info["session_id"]
+    end = time.time() + 2
+    while time.time() < end and m.get(sid).process.poll() is None:
+        time.sleep(0.02)
+    result = m.delete(sid)
+    assert result["deleted"] is True
+    assert result["was_running"] is False
+    assert all(item["session_id"] != sid for item in m.list())
+    try:
+        m.get(sid)
+    except KeyError:
+        pass
+    else:
+        raise AssertionError("deleted session is still addressable")
+
+
+def test_delete_running_session_terminates_and_removes_it():
+    m = TerminalManager()
+    info = m.create(name="running", command="cat")
+    sid = info["session_id"]
+    proc = m.get(sid).process
+    result = m.delete(sid)
+    assert result["deleted"] is True
+    assert result["was_running"] is True
+    assert proc.poll() is not None
+    assert all(item["session_id"] != sid for item in m.list())

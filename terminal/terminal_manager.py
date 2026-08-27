@@ -214,15 +214,32 @@ class TerminalManager:
                 os.killpg(os.getpgid(session.process.pid), sig)
             except ProcessLookupError:
                 pass
-            if not force:
-                try:
-                    session.process.wait(timeout=2)
-                except subprocess.TimeoutExpired:
+            try:
+                session.process.wait(timeout=1 if force else 2)
+            except subprocess.TimeoutExpired:
+                if not force:
                     try:
                         os.killpg(os.getpgid(session.process.pid), signal.SIGKILL)
                     except ProcessLookupError:
                         pass
+                    try:
+                        session.process.wait(timeout=1)
+                    except subprocess.TimeoutExpired:
+                        pass
         return session.info()
+
+    def delete(self, session_id: str, force: bool = False) -> dict[str, Any]:
+        session = self.get(session_id)
+        was_running = session.process.poll() is None
+        self.close(session_id, force=force)
+        with self._lock:
+            removed = self._sessions.pop(session_id, None)
+        return {
+            "session_id": session_id,
+            "deleted": removed is not None,
+            "was_running": was_running,
+            "return_code": session.process.poll(),
+        }
 
 
 manager = TerminalManager()

@@ -22,7 +22,8 @@ The PTY/admin API binds only to loopback. The Control Center proxies browser ope
 - `terminal_write` — send literal terminal input
 - `terminal_resize` — resize rows/columns
 - `terminal_signal` — send INT/TERM/HUP/QUIT/KILL
-- `terminal_close` — terminate a session
+- `terminal_close` — terminate a session but keep it listed with buffered output
+- `terminal_delete` — terminate if needed, then remove the session and buffered output
 
 ## Session model
 

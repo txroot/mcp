@@ -85,8 +85,14 @@ def terminal_signal(session_id: str, signal_name: str = "INT") -> dict[str, Any]
 
 @mcp.tool(title="Close interactive terminal", annotations=DESTRUCTIVE)
 def terminal_close(session_id: str, force: bool = False) -> dict[str, Any]:
-    """Terminate a terminal session; force=true uses SIGKILL immediately."""
+    """Terminate a terminal session but keep it in the session list with its buffered output."""
     return manager.close(session_id, force=force)
+
+
+@mcp.tool(title="Delete interactive terminal", annotations=DESTRUCTIVE)
+def terminal_delete(session_id: str, force: bool = False) -> dict[str, Any]:
+    """Terminate a terminal session if needed, then remove the session and its buffered output."""
+    return manager.delete(session_id, force=force)
 
 
 class AdminHandler(BaseHTTPRequestHandler):
@@ -147,6 +153,8 @@ class AdminHandler(BaseHTTPRequestHandler):
                 self._json(manager.send_signal(str(data.get("session_id", "")), str(data.get("signal", "INT")))); return
             if self.path == "/api/close":
                 self._json(manager.close(str(data.get("session_id", "")), bool(data.get("force", False)))); return
+            if self.path == "/api/delete":
+                self._json(manager.delete(str(data.get("session_id", "")), bool(data.get("force", False)))); return
             self._json({"error": "not found"}, 404)
         except KeyError as exc:
             self._json({"error": str(exc)}, 404)
