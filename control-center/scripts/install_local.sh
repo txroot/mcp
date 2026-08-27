@@ -12,6 +12,7 @@ install -m 0644 "$SRC_DIR/server.py" "$APP_DIR/server.py"
 install -m 0644 "$SRC_DIR/sofia_server.py" "$APP_DIR/sofia_server.py"
 install -m 0644 "$SRC_DIR/sofia_provider.py" "$APP_DIR/sofia_provider.py"
 install -m 0644 "$SRC_DIR/sofia_registry.py" "$APP_DIR/sofia_registry.py"
+install -m 0644 "$SRC_DIR/sofia_source_health.py" "$APP_DIR/sofia_source_health.py"
 install -m 0644 "$SRC_DIR"/providers/*.provider.json "$PROVIDERS_DIR/"
 install -m 0644 "$SRC_DIR/systemd/mcp-control-center.service" "$UNIT_DIR/mcp-control-center.service"
 
@@ -27,7 +28,8 @@ python3 -m py_compile \
   "$APP_DIR/server.py" \
   "$APP_DIR/sofia_server.py" \
   "$APP_DIR/sofia_provider.py" \
-  "$APP_DIR/sofia_registry.py"
+  "$APP_DIR/sofia_registry.py" \
+  "$APP_DIR/sofia_source_health.py"
 systemctl --user daemon-reload
 systemctl --user enable mcp-control-center.service
 systemctl --user restart mcp-control-center.service
