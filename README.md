@@ -106,7 +106,7 @@ Cada PTY recebe dois identificadores:
 
 O código curto é único entre as sessões atualmente conhecidas e pode ser usado onde o backend aceita `session_id`. Em mensagens ao utilizador, o ChatGPT deve preferir o código curto (por exemplo, “usa o terminal `K7M4`”) e reservar o ID longo para diagnóstico.
 
-O Control Center mostra um relógio local contínuo (`YYYY-MM-DD HH:MM:SS`), timestamps de criação e última atividade e marcadores de intervenção como `[14:05:12 · USER]` e `[14:05:18 · CHATGPT]`. Esses marcadores são side-band: não alteram os bytes enviados à PTY. O backend guarda apenas `actor`, timestamp, sequência e cursor — **nunca o conteúdo digitado** — para que passwords de `sudo` e outros segredos não sejam capturados pelo mecanismo de timestamp.
+O Control Center mostra um relógio local contínuo (`YYYY-MM-DD HH:MM:SS`), timestamps de criação e última atividade e marcadores de intervenção com identidade visual distinta: timestamp neutro, `● USER` em cyan e `✦ AI` em violeta. Esses marcadores são side-band: não alteram os bytes enviados à PTY. O backend guarda apenas `actor`, timestamp, sequência e cursor — **nunca o conteúdo digitado** — para que passwords de `sudo` e outros segredos não sejam capturados pelo mecanismo de timestamp. O header mantém o controlo da sidebar e `Interactive Terminal` à esquerda e `← MCP Control Center` à direita; criar/refrescar/configurar espera pertence à sidebar. Em mobile a sidebar funciona como drawer. Depois de input, o browser faz leituras imediatas em burst para reduzir o atraso de eco sem implementar local echo, preservando o comportamento seguro de passwords do PTY.
 
 ### Modelo de sessão
 
