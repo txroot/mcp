@@ -15,7 +15,7 @@ from pydantic import Field
 from terminal_manager import DEFAULT_TECHNICAL_WAIT_SECONDS, manager
 
 HOST = "127.0.0.1"
-SERVER_VERSION = "1.2.1"
+SERVER_VERSION = "1.3.0"
 ADMIN_PORT = int(os.getenv("TERMINAL_MCP_ADMIN_PORT", "18107"))
 ADMIN_TOKEN = os.getenv("TERMINAL_MCP_ADMIN_TOKEN", "")
 if not ADMIN_TOKEN:
@@ -39,7 +39,9 @@ mcp = MCPServer(
         "for a wait operation with intervention_timeout_seconds; the technical MCP wait remains short and renewable. "
         "Interactive sudo is supported when the host user is authorized. Never ask for, read, store, or send a sudo "
         "password through ChatGPT or terminal_write; instruct the user to type it directly in the Control Center PTY. "
-        "Keep user-visible terminal actions auditable."
+        "Each session has a short human-readable terminal_code. Prefer that code in user-facing references and it may be "
+        "used anywhere a session_id is accepted. Interaction timestamps are recorded as side-band actor events without "
+        "storing typed content, so sudo/password input remains secret. Keep user-visible terminal actions auditable."
     ),
 )
 
@@ -98,8 +100,8 @@ def terminal_wait(
 
 @mcp.tool(title="Write to interactive terminal", annotations=WRITE)
 def terminal_write(session_id: str, text: str) -> dict[str, Any]:
-    """Send literal UTF-8 text/keystrokes to a running PTY. Include newline explicitly when needed."""
-    return manager.write(session_id, text)
+    """Send literal UTF-8 text/keystrokes to a running PTY. Include newline explicitly when needed. session_id may also be the short terminal_code."""
+    return manager.write(session_id, text, actor="chatgpt")
 
 
 @mcp.tool(title="Resize interactive terminal", annotations=WRITE)
@@ -198,7 +200,7 @@ class AdminHandler(BaseHTTPRequestHandler):
                     str(data.get("session_id", "")), None if timeout_value is None else int(timeout_value),
                 )); return
             if self.path == "/api/write":
-                self._json(manager.write(str(data.get("session_id", "")), str(data.get("text", "")))); return
+                self._json(manager.write(str(data.get("session_id", "")), str(data.get("text", "")), actor="user")); return
             if self.path == "/api/resize":
                 self._json(manager.resize(str(data.get("session_id", "")), int(data.get("rows", 30)), int(data.get("cols", 120)))); return
             if self.path == "/api/signal":

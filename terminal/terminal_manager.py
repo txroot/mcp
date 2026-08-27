@@ -20,6 +20,9 @@ from typing import Any
 HOME = Path.home().resolve()
 MAX_BUFFER_BYTES = int(os.getenv("TERMINAL_MCP_BUFFER_BYTES", str(2 * 1024 * 1024)))
 MAX_SESSIONS = int(os.getenv("TERMINAL_MCP_MAX_SESSIONS", "16"))
+TERMINAL_CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+TERMINAL_CODE_LENGTH = 4
+MAX_INTERACTION_EVENTS = 512
 DEFAULT_INTERVENTION_TIMEOUT_SECONDS = 3600
 DEFAULT_TECHNICAL_WAIT_SECONDS = 20
 MAX_TECHNICAL_WAIT_SECONDS = 25
@@ -54,6 +57,7 @@ def _set_winsize(fd: int, rows: int, cols: int) -> None:
 @dataclass
 class TerminalSession:
     session_id: str
+    terminal_code: str
     name: str
     cwd: str
     command: str
@@ -73,6 +77,9 @@ class TerminalSession:
     wait_deadline: float | None = None
     wait_timeout_seconds: int | None = None
     wait_timed_out: bool = False
+    interaction_events: deque[dict[str, Any]] = field(default_factory=deque)
+    interaction_seq: int = 0
+    interaction_open: dict[str, bool] = field(default_factory=dict, repr=False)
     condition: threading.Condition = field(init=False, repr=False)
 
     def __post_init__(self) -> None:
@@ -92,6 +99,23 @@ class TerminalSession:
                 self.cursor_start += len(old)
             self.condition.notify_all()
 
+    def record_interaction(self, actor: str) -> dict[str, Any]:
+        actor = actor.strip().lower()
+        if actor not in {"user", "chatgpt"}:
+            actor = "system"
+        with self.lock:
+            self.interaction_seq += 1
+            event = {
+                "seq": self.interaction_seq,
+                "at": time.time(),
+                "actor": actor,
+                "cursor": self.cursor_end,
+            }
+            self.interaction_events.append(event)
+            while len(self.interaction_events) > MAX_INTERACTION_EVENTS:
+                self.interaction_events.popleft()
+            return dict(event)
+
     def read(self, after: int | None, max_bytes: int) -> dict[str, Any]:
         max_bytes = max(1, min(int(max_bytes), 262144))
         with self.lock:
@@ -100,13 +124,16 @@ class TerminalSession:
             blob = b"".join(self.chunks)
             offset = max(0, start - self.cursor_start)
             data = blob[offset: offset + max(0, end - start)]
+            events = [dict(event) for event in self.interaction_events if start <= int(event["cursor"]) <= end]
             return {
                 "output": data.decode("utf-8", "replace"),
                 "cursor": end,
+                "read_start_cursor": start,
                 "buffer_start": self.cursor_start,
                 "buffer_end": self.cursor_end,
                 "truncated_before": after is not None and int(after) < self.cursor_start,
                 "has_more": end < self.cursor_end,
+                "interaction_events": events,
             }
 
     def wait_for_output(self, after: int, max_bytes: int, timeout_seconds: float) -> dict[str, Any]:
@@ -149,6 +176,7 @@ class TerminalSession:
             remaining = None if deadline is None else max(0.0, deadline - now)
         return {
             "session_id": self.session_id,
+            "terminal_code": self.terminal_code,
             "name": self.name,
             "cwd": self.cwd,
             "command": self.command,
@@ -222,6 +250,14 @@ class TerminalManager:
                         session.intervention_timeout_seconds = value
         return self.settings()
 
+    def _new_terminal_code_locked(self) -> str:
+        used = {session.terminal_code for session in self._sessions.values()}
+        for _ in range(256):
+            code = "".join(secrets.choice(TERMINAL_CODE_ALPHABET) for _ in range(TERMINAL_CODE_LENGTH))
+            if code not in used:
+                return code
+        raise RuntimeError("unable to allocate a unique terminal code")
+
     def create(self, *, name: str = "Terminal", cwd: str | None = None, command: str | None = None,
                rows: int = 30, cols: int = 120, intervention_timeout_seconds: int | None = None) -> dict[str, Any]:
         with self._lock:
@@ -249,11 +285,12 @@ class TerminalManager:
         session_id = "term_" + secrets.token_hex(6)
         timeout_source = "default" if intervention_timeout_seconds is None else "session"
         wait_timeout = self._default_intervention_timeout_seconds if intervention_timeout_seconds is None else _normalize_intervention_timeout(intervention_timeout_seconds)
-        session = TerminalSession(
-            session_id, (name or "Terminal")[:80], str(workdir), cmd, master_fd, proc,
-            intervention_timeout_seconds=wait_timeout, intervention_timeout_source=timeout_source,
-        )
         with self._lock:
+            terminal_code = self._new_terminal_code_locked()
+            session = TerminalSession(
+                session_id, terminal_code, (name or "Terminal")[:80], str(workdir), cmd, master_fd, proc,
+                intervention_timeout_seconds=wait_timeout, intervention_timeout_source=timeout_source,
+            )
             self._sessions[session_id] = session
         threading.Thread(target=self._reader, args=(session,), name=f"pty-reader-{session_id}", daemon=True).start()
         return session.info()
@@ -285,8 +322,12 @@ class TerminalManager:
                 pass
 
     def get(self, session_id: str) -> TerminalSession:
+        key = str(session_id).strip()
         with self._lock:
-            session = self._sessions.get(session_id)
+            session = self._sessions.get(key)
+            if session is None:
+                code = key.upper()
+                session = next((item for item in self._sessions.values() if item.terminal_code == code), None)
         if not session:
             raise KeyError(f"unknown terminal session: {session_id}")
         return session
@@ -349,14 +390,32 @@ class TerminalManager:
                 session.wait_timed_out = True
         return {**session.info(), **result, "intervention_timed_out": logical_expired}
 
-    def write(self, session_id: str, data: str) -> dict[str, Any]:
+    def write(self, session_id: str, data: str, actor: str | None = None) -> dict[str, Any]:
         session = self.get(session_id)
         if session.process.poll() is not None or session.closed:
             raise RuntimeError("terminal session is not running")
+        event = None
+        actor_key = actor.strip().lower() if actor else None
+        if actor_key in {"user", "chatgpt"}:
+            with session.lock:
+                if not session.interaction_open.get(actor_key, False):
+                    event = session.record_interaction(actor_key)
+                    session.interaction_open[actor_key] = True
         payload = data.encode("utf-8")
         written = os.write(session.master_fd, payload)
         session.updated_at = time.time()
-        return {"session_id": session_id, "written_bytes": written, "cursor": session.cursor_end}
+        if actor_key in {"user", "chatgpt"} and ("\n" in data or "\r" in data):
+            with session.lock:
+                session.interaction_open[actor_key] = False
+        result = {
+            "session_id": session.session_id,
+            "terminal_code": session.terminal_code,
+            "written_bytes": written,
+            "cursor": session.cursor_end,
+        }
+        if event is not None:
+            result["interaction_event"] = event
+        return result
 
     def resize(self, session_id: str, rows: int, cols: int) -> dict[str, Any]:
         session = self.get(session_id)
@@ -403,12 +462,14 @@ class TerminalManager:
 
     def delete(self, session_id: str, force: bool = False) -> dict[str, Any]:
         session = self.get(session_id)
+        canonical_id = session.session_id
         was_running = session.process.poll() is None
-        self.close(session_id, force=force)
+        self.close(canonical_id, force=force)
         with self._lock:
-            removed = self._sessions.pop(session_id, None)
+            removed = self._sessions.pop(canonical_id, None)
         return {
-            "session_id": session_id,
+            "session_id": canonical_id,
+            "terminal_code": session.terminal_code,
             "deleted": removed is not None,
             "was_running": was_running,
             "return_code": session.process.poll(),

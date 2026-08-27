@@ -204,3 +204,49 @@ def test_process_exit_clears_wait_state(tmp_path):
     assert state["state"] == "exited"
     assert state["wait_state"] == "idle"
     assert state["wait_deadline"] is None
+
+
+def test_terminal_code_is_human_readable_and_resolves():
+    m = TerminalManager()
+    info = m.create(name="code", command="cat")
+    try:
+        code = info["terminal_code"]
+        assert len(code) == 4
+        assert code.isalnum()
+        assert "0" not in code and "1" not in code and "I" not in code and "O" not in code
+        assert m.get(code).session_id == info["session_id"]
+        assert m.get(code.lower()).session_id == info["session_id"]
+    finally:
+        m.close(info["session_id"], force=True)
+
+
+def test_interaction_events_timestamp_actor_without_storing_content():
+    m = TerminalManager()
+    info = m.create(name="events", command="cat")
+    sid = info["session_id"]
+    try:
+        before = time.time()
+        result = m.write(sid, "secret-looking-input", actor="user")
+        event = result["interaction_event"]
+        assert event["actor"] == "user"
+        assert event["at"] >= before
+        assert "text" not in event and "content" not in event and "data" not in event
+        # More characters from the same intervention do not create another event until Enter.
+        assert "interaction_event" not in m.write(sid, "-continued", actor="user")
+        m.write(sid, "\n", actor="user")
+        m.write(sid, "next\n", actor="user")
+        read = m.read(sid, after=0)
+        actors = [item["actor"] for item in read["interaction_events"]]
+        assert actors.count("user") >= 2
+        assert all("secret-looking-input" not in repr(item) for item in read["interaction_events"])
+    finally:
+        m.close(sid, force=True)
+
+def test_delete_accepts_short_terminal_code():
+    m = TerminalManager()
+    info = m.create(name="delete-code", command="cat")
+    result = m.delete(info["terminal_code"], force=True)
+    assert result["deleted"] is True
+    assert result["session_id"] == info["session_id"]
+    assert result["terminal_code"] == info["terminal_code"]
+    assert all(item["session_id"] != info["session_id"] for item in m.list())

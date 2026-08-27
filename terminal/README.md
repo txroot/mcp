@@ -26,6 +26,12 @@ The PTY/admin API binds only to loopback. The Control Center proxies browser ope
 - `terminal_close` — terminate a session but keep it listed with buffered output
 - `terminal_delete` — terminate if needed, then remove the session and buffered output
 
+## Human-readable terminal codes and timestamps
+
+Every session exposes both the technical `term_<hex>` identifier and a four-character `terminal_code` such as `K7M4`. The alphabet excludes ambiguous `0`, `1`, `I` and `O` characters. Backend session lookup accepts either identifier, case-insensitively for the short code. ChatGPT should prefer the short code in user-facing instructions and keep the long ID for diagnostics.
+
+The Control Center displays a live local timestamp, session creation/last-activity timestamps, and side-band intervention markers such as `[14:05:12 · USER]` and `[14:05:18 · CHATGPT]`. Interaction events store only actor, timestamp, sequence number and PTY cursor anchor; typed content is never copied into the event log. This preserves the existing sudo rule: a locally typed password may create a generic USER activity marker but the password itself remains unrecorded and un-echoed. The visual markers are not written back into the PTY and therefore cannot change command semantics.
+
 ## Session model
 
 Each session has a random `term_<hex>` ID and a bounded in-memory output ring buffer. The default buffer is 2 MiB and the maximum number of live sessions is 16. Cursors let clients fetch only output not previously seen. Both the browser and ChatGPT write to the same PTY; there is deliberately no hidden second shell.
