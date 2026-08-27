@@ -20,6 +20,16 @@ from typing import Any
 HOME = Path.home().resolve()
 MAX_BUFFER_BYTES = int(os.getenv("TERMINAL_MCP_BUFFER_BYTES", str(2 * 1024 * 1024)))
 MAX_SESSIONS = int(os.getenv("TERMINAL_MCP_MAX_SESSIONS", "16"))
+DEFAULT_INTERVENTION_TIMEOUT_SECONDS = 3600
+MAX_INTERVENTION_TIMEOUT_SECONDS = 7 * 24 * 3600
+DEFAULT_SETTINGS_PATH = Path(os.getenv("TERMINAL_MCP_SETTINGS_PATH", str(Path.home() / ".config/terminal-mcp/settings.json"))).expanduser()
+
+
+def _normalize_intervention_timeout(value: int | float) -> int:
+    seconds = int(value)
+    if seconds < 0 or seconds > MAX_INTERVENTION_TIMEOUT_SECONDS:
+        raise ValueError(f"intervention timeout must be between 0 and {MAX_INTERVENTION_TIMEOUT_SECONDS} seconds")
+    return seconds
 
 
 def _safe_cwd(value: str | None) -> Path:
@@ -55,6 +65,12 @@ class TerminalSession:
     buffered_bytes: int = 0
     closed: bool = False
     lock: threading.RLock = field(default_factory=threading.RLock)
+    intervention_timeout_seconds: int = DEFAULT_INTERVENTION_TIMEOUT_SECONDS
+    intervention_timeout_source: str = "default"
+    wait_started_at: float | None = None
+    wait_deadline: float | None = None
+    wait_timeout_seconds: int | None = None
+    wait_timed_out: bool = False
     condition: threading.Condition = field(init=False, repr=False)
 
     def __post_init__(self) -> None:
@@ -104,8 +120,31 @@ class TerminalSession:
             result["timed_out"] = not result["output"] and not self.closed and self.process.poll() is None
             return result
 
+    def clear_wait_state(self) -> None:
+        with self.lock:
+            self.wait_started_at = None
+            self.wait_deadline = None
+            self.wait_timeout_seconds = None
+            self.wait_timed_out = False
+
+    def start_wait_state(self, timeout_seconds: int) -> None:
+        timeout_seconds = _normalize_intervention_timeout(timeout_seconds)
+        now = time.time()
+        with self.lock:
+            self.wait_started_at = now
+            self.wait_timeout_seconds = timeout_seconds
+            self.wait_deadline = None if timeout_seconds == 0 else now + timeout_seconds
+            self.wait_timed_out = False
+
     def info(self) -> dict[str, Any]:
         rc = self.process.poll()
+        now = time.time()
+        with self.lock:
+            deadline = self.wait_deadline
+            started = self.wait_started_at
+            logical_timeout = self.wait_timeout_seconds
+            logical_timed_out = bool(self.wait_timed_out or (deadline is not None and now >= deadline))
+            remaining = None if deadline is None else max(0.0, deadline - now)
         return {
             "session_id": self.session_id,
             "name": self.name,
@@ -119,16 +158,68 @@ class TerminalSession:
             "cursor_start": self.cursor_start,
             "cursor_end": self.cursor_end,
             "buffered_bytes": self.buffered_bytes,
+            "intervention_timeout_seconds": self.intervention_timeout_seconds,
+            "intervention_timeout_source": self.intervention_timeout_source,
+            "wait_started_at": started,
+            "wait_deadline": deadline,
+            "wait_timeout_seconds": logical_timeout,
+            "wait_remaining_seconds": remaining,
+            "intervention_timed_out": logical_timed_out,
+            "wait_state": "timed_out" if logical_timed_out else ("waiting" if started is not None else "idle"),
         }
 
 
 class TerminalManager:
-    def __init__(self) -> None:
+    def __init__(self, settings_path: Path | None = None) -> None:
         self._sessions: dict[str, TerminalSession] = {}
         self._lock = threading.RLock()
+        self._settings_path = Path(settings_path or DEFAULT_SETTINGS_PATH).expanduser()
+        self._default_intervention_timeout_seconds = DEFAULT_INTERVENTION_TIMEOUT_SECONDS
+        self._load_settings()
+
+    def _load_settings(self) -> None:
+        try:
+            if self._settings_path.exists():
+                data = __import__("json").loads(self._settings_path.read_text())
+                self._default_intervention_timeout_seconds = _normalize_intervention_timeout(
+                    data.get("default_intervention_timeout_seconds", DEFAULT_INTERVENTION_TIMEOUT_SECONDS)
+                )
+        except Exception:
+            self._default_intervention_timeout_seconds = DEFAULT_INTERVENTION_TIMEOUT_SECONDS
+
+    def _save_settings(self) -> None:
+        import json
+        self._settings_path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = self._settings_path.with_suffix(".tmp")
+        tmp.write_text(json.dumps({
+            "default_intervention_timeout_seconds": self._default_intervention_timeout_seconds,
+        }, indent=2) + "\n")
+        os.chmod(tmp, 0o600)
+        tmp.replace(self._settings_path)
+
+    def settings(self) -> dict[str, Any]:
+        return {
+            "default_intervention_timeout_seconds": self._default_intervention_timeout_seconds,
+            "max_intervention_timeout_seconds": MAX_INTERVENTION_TIMEOUT_SECONDS,
+            "technical_wait_timeout_seconds": 20,
+            "technical_wait_timeout_seconds_max": 25,
+        }
+
+    def set_default_intervention_timeout(self, timeout_seconds: int, *, apply_to_default_sessions: bool = True) -> dict[str, Any]:
+        value = _normalize_intervention_timeout(timeout_seconds)
+        self._default_intervention_timeout_seconds = value
+        self._save_settings()
+        if apply_to_default_sessions:
+            with self._lock:
+                sessions = list(self._sessions.values())
+            for session in sessions:
+                with session.lock:
+                    if session.intervention_timeout_source == "default":
+                        session.intervention_timeout_seconds = value
+        return self.settings()
 
     def create(self, *, name: str = "Terminal", cwd: str | None = None, command: str | None = None,
-               rows: int = 30, cols: int = 120) -> dict[str, Any]:
+               rows: int = 30, cols: int = 120, intervention_timeout_seconds: int | None = None) -> dict[str, Any]:
         with self._lock:
             live = sum(1 for s in self._sessions.values() if s.process.poll() is None)
             if live >= MAX_SESSIONS:
@@ -152,7 +243,12 @@ class TerminalManager:
         finally:
             os.close(slave_fd)
         session_id = "term_" + secrets.token_hex(6)
-        session = TerminalSession(session_id, (name or "Terminal")[:80], str(workdir), cmd, master_fd, proc)
+        timeout_source = "default" if intervention_timeout_seconds is None else "session"
+        wait_timeout = self._default_intervention_timeout_seconds if intervention_timeout_seconds is None else _normalize_intervention_timeout(intervention_timeout_seconds)
+        session = TerminalSession(
+            session_id, (name or "Terminal")[:80], str(workdir), cmd, master_fd, proc,
+            intervention_timeout_seconds=wait_timeout, intervention_timeout_source=timeout_source,
+        )
         with self._lock:
             self._sessions[session_id] = session
         threading.Thread(target=self._reader, args=(session,), name=f"pty-reader-{session_id}", daemon=True).start()
@@ -174,6 +270,10 @@ class TerminalManager:
             with session.condition:
                 session.closed = True
                 session.updated_at = time.time()
+                session.wait_started_at = None
+                session.wait_deadline = None
+                session.wait_timeout_seconds = None
+                session.wait_timed_out = False
                 session.condition.notify_all()
             try:
                 os.close(session.master_fd)
@@ -195,9 +295,55 @@ class TerminalManager:
         session = self.get(session_id)
         return {**session.info(), **session.read(after, max_bytes)}
 
-    def wait(self, session_id: str, after: int, max_bytes: int = 65536, timeout_seconds: float = 20.0) -> dict[str, Any]:
+    def set_intervention_timeout(self, session_id: str, timeout_seconds: int | None) -> dict[str, Any]:
         session = self.get(session_id)
-        return {**session.info(), **session.wait_for_output(after, max_bytes, timeout_seconds)}
+        with session.lock:
+            if timeout_seconds is None:
+                session.intervention_timeout_seconds = self._default_intervention_timeout_seconds
+                session.intervention_timeout_source = "default"
+            else:
+                session.intervention_timeout_seconds = _normalize_intervention_timeout(timeout_seconds)
+                session.intervention_timeout_source = "session"
+            session.wait_started_at = None
+            session.wait_deadline = None
+            session.wait_timeout_seconds = None
+            session.wait_timed_out = False
+        return session.info()
+
+    def wait(self, session_id: str, after: int, max_bytes: int = 65536, timeout_seconds: float = 20.0,
+             intervention_timeout_seconds: int | None = None, reset_intervention_timer: bool = False) -> dict[str, Any]:
+        session = self.get(session_id)
+        technical_timeout = max(0.1, min(float(timeout_seconds), 25.0))
+        with session.lock:
+            if intervention_timeout_seconds is not None:
+                logical_timeout = _normalize_intervention_timeout(intervention_timeout_seconds)
+                session.start_wait_state(logical_timeout)
+            elif reset_intervention_timer or session.wait_started_at is None:
+                session.start_wait_state(session.intervention_timeout_seconds)
+
+            # If output is already buffered, satisfy this wait immediately and end the logical wait cycle.
+            immediate = session.read(after, max_bytes)
+            if immediate["output"]:
+                session.clear_wait_state()
+                return {**session.info(), **immediate, "timed_out": False, "intervention_timed_out": False}
+
+            deadline = session.wait_deadline
+            if deadline is not None:
+                remaining = deadline - time.time()
+                if remaining <= 0:
+                    session.wait_timed_out = True
+                    return {**session.info(), **immediate, "timed_out": False, "intervention_timed_out": True}
+                technical_timeout = min(technical_timeout, max(0.1, remaining))
+
+        result = session.wait_for_output(after, max_bytes, technical_timeout)
+        with session.lock:
+            logical_expired = session.wait_deadline is not None and time.time() >= session.wait_deadline
+            if result["output"]:
+                session.clear_wait_state()
+                logical_expired = False
+            elif logical_expired:
+                session.wait_timed_out = True
+        return {**session.info(), **result, "intervention_timed_out": logical_expired}
 
     def write(self, session_id: str, data: str) -> dict[str, Any]:
         session = self.get(session_id)

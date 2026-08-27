@@ -15,6 +15,7 @@ from pydantic import Field
 from terminal_manager import manager
 
 HOST = "127.0.0.1"
+SERVER_VERSION = "1.2.0"
 ADMIN_PORT = int(os.getenv("TERMINAL_MCP_ADMIN_PORT", "18107"))
 ADMIN_TOKEN = os.getenv("TERMINAL_MCP_ADMIN_TOKEN", "")
 if not ADMIN_TOKEN:
@@ -25,11 +26,15 @@ DESTRUCTIVE = ToolAnnotations(read_only_hint=False, destructive_hint=True, open_
 
 mcp = MCPServer(
     "microlumin-interactive-terminal",
+    title="Microlumin Interactive Terminal",
+    version=SERVER_VERSION,
     instructions=(
         "Persistent interactive PTY sessions on the local Microlumin workstation. "
         "Sessions are shared with the local MCP Control Center terminal UI. "
         "Use terminal_read cursors to avoid repeating output. For sustained interactive sessions, use terminal_wait "
-        "repeatedly with the returned cursor and keep the ChatGPT turn open until the user's explicit stop marker. "
+        "repeatedly with the returned cursor and keep the ChatGPT turn open until the user's explicit stop marker or "
+        "intervention_timed_out=true. The per-session intervention timeout defaults to one hour and can be overridden "
+        "for a wait operation with intervention_timeout_seconds; the technical MCP wait remains short and renewable. "
         "Interactive sudo is supported when the host user is authorized. Never ask for, read, store, or send a sudo "
         "password through ChatGPT or terminal_write; instruct the user to type it directly in the Control Center PTY. "
         "Keep user-visible terminal actions auditable."
@@ -44,9 +49,10 @@ def terminal_create(
     command: str | None = None,
     rows: Annotated[int, Field(ge=2, le=300)] = 30,
     cols: Annotated[int, Field(ge=10, le=500)] = 120,
+    intervention_timeout_seconds: Annotated[int | None, Field(ge=0, le=604800)] = None,
 ) -> dict[str, Any]:
-    """Create a persistent Linux PTY session. Omit command for an interactive login shell."""
-    return manager.create(name=name, cwd=cwd, command=command, rows=rows, cols=cols)
+    """Create a persistent Linux PTY session. Omit command for an interactive login shell. The intervention timeout is the logical maximum time ChatGPT should renew waits for user/physical input; 0 means no logical limit and None inherits the MCP default."""
+    return manager.create(name=name, cwd=cwd, command=command, rows=rows, cols=cols, intervention_timeout_seconds=intervention_timeout_seconds)
 
 
 @mcp.tool(title="List interactive terminals", annotations=READ)
@@ -71,9 +77,14 @@ def terminal_wait(
     after_cursor: Annotated[int, Field(ge=0)],
     timeout_seconds: Annotated[float, Field(ge=1, le=25)] = 20,
     max_bytes: Annotated[int, Field(ge=1, le=262144)] = 65536,
+    intervention_timeout_seconds: Annotated[int | None, Field(ge=0, le=604800)] = None,
+    reset_intervention_timer: bool = False,
 ) -> dict[str, Any]:
-    """Block until new PTY output arrives, the session exits, or timeout expires. Reuse the returned cursor in a loop."""
-    return manager.wait(session_id, after=after_cursor, max_bytes=max_bytes, timeout_seconds=timeout_seconds)
+    """Block for one short technical wait. Reuse the returned cursor while timed_out=true. The MCP tracks a separate logical intervention deadline across calls; intervention_timed_out=true means stop renewing. Pass intervention_timeout_seconds to override/restart the logical timer for this wait cycle (0 = no logical limit), or reset_intervention_timer=true to restart using the session policy."""
+    return manager.wait(
+        session_id, after=after_cursor, max_bytes=max_bytes, timeout_seconds=timeout_seconds,
+        intervention_timeout_seconds=intervention_timeout_seconds, reset_intervention_timer=reset_intervention_timer,
+    )
 
 
 @mcp.tool(title="Write to interactive terminal", annotations=WRITE)
@@ -136,11 +147,13 @@ class AdminHandler(BaseHTTPRequestHandler):
         p = urlparse(self.path)
         try:
             if p.path in ("/healthz", "/readyz"):
-                self._json({"status": "ok", "sessions": len(manager.list())}); return
+                self._json({"status": "ok", "version": SERVER_VERSION, "sessions": len(manager.list()), "wait_settings": manager.settings()}); return
             if p.path.startswith("/api/") and not self._authorized():
                 self._json({"error": "unauthorized"}, 403); return
             if p.path == "/api/sessions":
                 self._json({"sessions": manager.list()}); return
+            if p.path == "/api/settings":
+                self._json(manager.settings()); return
             if p.path == "/api/read":
                 q = parse_qs(p.query)
                 sid = q.get("session_id", [""])[0]
@@ -159,7 +172,22 @@ class AdminHandler(BaseHTTPRequestHandler):
                 self._json({"error": "unauthorized"}, 403); return
             data = self._body()
             if self.path == "/api/create":
-                self._json(manager.create(name=str(data.get("name") or "Terminal"), cwd=data.get("cwd"), command=data.get("command"), rows=int(data.get("rows", 30)), cols=int(data.get("cols", 120)))); return
+                timeout_value = data.get("intervention_timeout_seconds")
+                self._json(manager.create(
+                    name=str(data.get("name") or "Terminal"), cwd=data.get("cwd"), command=data.get("command"),
+                    rows=int(data.get("rows", 30)), cols=int(data.get("cols", 120)),
+                    intervention_timeout_seconds=None if timeout_value is None else int(timeout_value),
+                )); return
+            if self.path == "/api/settings":
+                self._json(manager.set_default_intervention_timeout(
+                    int(data.get("default_intervention_timeout_seconds", 3600)),
+                    apply_to_default_sessions=bool(data.get("apply_to_default_sessions", True)),
+                )); return
+            if self.path == "/api/configure-wait":
+                timeout_value = data.get("intervention_timeout_seconds")
+                self._json(manager.set_intervention_timeout(
+                    str(data.get("session_id", "")), None if timeout_value is None else int(timeout_value),
+                )); return
             if self.path == "/api/write":
                 self._json(manager.write(str(data.get("session_id", "")), str(data.get("text", "")))); return
             if self.path == "/api/resize":

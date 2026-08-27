@@ -45,7 +45,7 @@ For a sustained terminal conversation, the caller should:
 4. when user output arrives, process only the new bytes, reply through `terminal_write`, advance past the reply/terminal echo, then wait again;
 5. end the ChatGPT response only after an explicit user stop marker such as `FECHAR TESTE`.
 
-`terminal_wait` blocks efficiently on a per-session condition and wakes when new PTY bytes arrive or when the session closes. Its timeout is intentionally bounded to 25 seconds so calls can be safely renewed through the MCP/OpenAI tunnel.
+`terminal_wait` blocks efficiently on a per-session condition and wakes when new PTY bytes arrive or when the session closes. Its **technical** timeout is intentionally bounded to 25 seconds so calls can be safely renewed through the MCP/OpenAI tunnel. A separate **logical intervention timeout** is tracked across those calls. The default is 3600 seconds (1 hour), configurable in the Control Center. `intervention_timeout_seconds` can override/restart it for one ChatGPT wait cycle; `0` means no MCP logical limit. When the logical deadline expires, `intervention_timed_out=true` is returned and the PTY remains running.
 
 Example logical loop:
 
@@ -65,6 +65,22 @@ while true:
 This does **not** create a background ChatGPT daemon. Once ChatGPT finalizes the turn, it stops calling `terminal_wait`; the PTY remains alive, but a new ChatGPT turn is required to resume interaction.
 
 When using a shell as the conversation surface, explicit markers such as `[ANDRE -> CHATGPT]` and `[CHATGPT -> ANDRE]` are recommended to distinguish user input from prompts, command echo and ChatGPT's own output.
+
+## Intervention wait policy
+
+The wait policy is stored by the Terminal MCP, not only in the browser:
+
+- global default: `~/.config/terminal-mcp/settings.json`;
+- default: 3600 seconds;
+- supported range: 0 to 604800 seconds (7 days);
+- `0`: unlimited logical wait;
+- new sessions inherit the global default unless they receive an explicit override;
+- an existing session can inherit the default or use its own override from the Control Center;
+- changing the global default updates sessions that are still configured to inherit it;
+- an already-running wait cycle keeps its own deadline until it is satisfied, restarted, or expires;
+- expiry never closes or deletes the PTY.
+
+The Control Center presets are 5 min, 15 min, 30 min, 1 h, 4 h and Unlimited. When a logical wait is active the UI shows its deadline (`Waiting until HH:MM`).
 
 ## Security
 
@@ -111,4 +127,6 @@ The current development host uses the `terminal` tunnel profile and `mcp-termina
 
 The tunnel unit waits for the Terminal MCP health endpoint before starting. `install_local.sh` also waits for the MCP to become healthy and restarts an installed terminal tunnel afterwards. This ordering prevents tunnel discovery from getting stuck on an initial connection-refused race.
 
-After the MCP tool schema changes, an already-open ChatGPT conversation may still expose the previous cached tool set. Verify local MCP discovery and tunnel readiness first; if they are correct, start a new ChatGPT conversation or reconnect/reload the **Interactive Terminal** app so the tool schema is discovered again.
+On ChatGPT Business, a published MCP app uses a frozen snapshot of its tools and input schemas. Changing the live MCP server or its advertised MCP version does **not** update that snapshot. Tool/schema changes must be tested in Developer mode and then recreated/republished as a new app revision. Keep the previous published app available until the replacement is validated.
+
+The MCP server advertises an explicit version so clients can detect schema revisions. After the MCP tool schema changes, an already-open ChatGPT conversation may still expose the previous cached tool set. Verify local MCP discovery and tunnel readiness first; if they are correct, start a new ChatGPT conversation or reconnect/reload the **Interactive Terminal** app so the tool schema is discovered again.

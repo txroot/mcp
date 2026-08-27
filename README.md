@@ -145,7 +145,7 @@ Fluxo recomendado:
    o marcador de saída acordado, por exemplo: FECHAR TESTE
 ```
 
-`terminal_wait` tem timeout máximo curto de propósito; o timeout **não significa fim da conversa**. Num modo de interação persistente, o caller deve renovar a espera enquanto a resposta ChatGPT continuar ativa.
+`terminal_wait` tem timeout técnico curto de propósito; o timeout **não significa fim da conversa**. Num modo de interação persistente, o caller deve renovar a espera enquanto a resposta ChatGPT continuar ativa. Separadamente, cada sessão tem um **timeout lógico de intervenção** (por defeito 1 hora). O MCP mantém esse deadline entre chamadas curtas e devolve `intervention_timed_out=true` quando termina. A PTY permanece aberta. O valor pode ser definido no Control Center ou sobreposto pelo ChatGPT através de `intervention_timeout_seconds`; `0` significa sem limite lógico.
 
 Um protocolo de demonstração simples pode marcar mensagens assim:
 
@@ -193,6 +193,8 @@ O Terminal MCP é deliberadamente poderoso: qualquer comando executável pelo ut
 ### OpenAI Secure Tunnel e discovery
 
 O serviço `mcp-terminal-tunnel.service` depende do Terminal MCP. O unit espera pelo health check local antes de iniciar o tunnel, evitando uma race em que o tunnel faz discovery antes de `8770/18107` estarem prontos.
+
+O servidor publica uma versão MCP explícita para ajudar clientes/tunnels a distinguir revisões de schema. No workspace ChatGPT Business, a app publicada usa um snapshot congelado das tools. Alterar o MCP ou a versão anunciada pelo servidor **não atualiza esse snapshot**. Para alterações de tools/inputs, a revisão deve ser testada em Developer mode e depois recriada/republicada como nova versão da app; a app publicada anterior deve permanecer ativa até a substituta estar validada.
 
 Depois de alterar o schema das tools do MCP, uma conversa ChatGPT já aberta pode continuar com o schema antigo em cache. Nesse caso:
 

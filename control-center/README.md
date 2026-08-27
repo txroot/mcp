@@ -15,7 +15,8 @@ O Control Center corre apenas em `127.0.0.1:18100` e reúne numa única UI:
 - logs;
 - botão **Info** com descoberta dinâmica das MCP tools realmente expostas pelo serviço;
 - ligação à Admin UI técnica dos tunnels quando existe;
-- consola **Terminal** integrada para sessões PTY partilhadas do Interactive Terminal MCP.
+- consola **Terminal** integrada para sessões PTY partilhadas do Interactive Terminal MCP;
+- política de espera por intervenção configurável globalmente e por sessão (5 min, 15 min, 30 min, 1 h, 4 h ou Unlimited), sem fechar a PTY quando expira.
 
 A separação é de **serviços**, não de aplicações de administração: cada MCP continua independente, mas a operação diária é centralizada aqui.
 
