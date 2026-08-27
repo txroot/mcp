@@ -70,4 +70,4 @@ http://127.0.0.1:18100
 O código do Control Center está neste diretório. O token local e quaisquer credenciais das dependências não são migrados pelo Git; devem ser recriados ou restaurados pelo canal seguro adequado.
 ## Interactive Terminal identification and timestamps
 
-The Terminal view shows each session's four-character `terminal_code`, live local time, creation time and last activity. User and ChatGPT interventions are annotated visually with timestamps using side-band metadata; typed content is not stored in those events. The long `term_<hex>` ID remains available for diagnostics.
+The Terminal view shows each session's four-character `terminal_code`, live local time, creation time and last activity. User and ChatGPT interventions are annotated visually with timestamps using side-band metadata; typed content is not stored in those events. The long `term_<hex>` ID remains available for diagnostics. The left session list can be hidden or shown from the top toolbar; the browser remembers this preference locally and the xterm is refitted after each change.
