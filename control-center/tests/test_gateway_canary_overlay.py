@@ -46,6 +46,7 @@ def test_overlay_copies_candidate_modules_and_patches_gateway_server(tmp_path: P
     assert (runtime / "runtime/adapters/mcp_self_hosted/provider_inventory.py").is_file()
     assert (runtime / "runtime/adapters/mcp_self_hosted/provider_inventory_resolvers.py").is_file()
     assert (runtime / "runtime/adapters/mcp_self_hosted/provider_status_client.py").is_file()
+    assert (runtime / "runtime/adapters/mcp_self_hosted/provider_inventory_smoke.py").is_file()
     assert (runtime / "sofia_runtime_inventory.py").is_file()
     assert (runtime / "runtime-bundle/sofia-os-provider-inventory.json").is_file()
 
