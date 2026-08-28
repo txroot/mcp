@@ -51,82 +51,87 @@ jobs:
             control-center/server.py \
             control-center/sofia_provider.py \
             control-center/sofia_registry.py \
+            control-center/sofia_runtime_inventory.py \
             control-center/sofia_source_health.py \
             control-center/sofia_gateway_health.py \
             control-center/sofia_gateway_client.py \
             control-center/sofia_lifecycle.py \
             control-center/sofia_health.py \
             control-center/sofia_ui.py \
-            control-center/sofia_server.py \
-            control-center/gateway/provider_lifecycle_runner.py \
-            control-center/gateway/provider_lifecycle_actions.py
+            control-center/sofia_server.py
 
-      - name: Validate provider manifests and lifecycle contract
+      - name: Validate reconciled registry and runtime inventory
         run: |
           python - <<'PY'
           import sys
           from pathlib import Path
 
           sys.path.insert(0, "control-center")
-          from gateway.provider_lifecycle_actions import build_provider_lifecycle_actions
           from sofia_gateway_client import DEFAULT_GATEWAY_MCP_URL
           from sofia_gateway_health import DEFAULT_GATEWAY_READY_URL
           from sofia_registry import load_control_center_registry
+          from sofia_runtime_inventory import load_runtime_inventory
 
           assert DEFAULT_GATEWAY_READY_URL == "http://127.0.0.1:8770/ready"
           assert DEFAULT_GATEWAY_MCP_URL == "http://127.0.0.1:8770/mcp"
 
+          legacy = {
+              "host-tools": {},
+              "google-tasks": {},
+              "memory": {},
+              "google-analytics": {},
+              "prestashop": {},
+          }
           result = load_control_center_registry(
-              legacy_registry={},
+              legacy_registry=legacy,
               providers_dir=Path("control-center/providers"),
               home=Path("/tmp/sofia-ci"),
           )
-          assert result.migrated_ids == ("google-analytics", "memory", "prestashop")
+          assert result.registry == {}
+          assert result.migrated_ids == ()
+          assert result.suppressed_ids == (
+              "google-analytics",
+              "google-tasks",
+              "host-tools",
+              "memory",
+              "prestashop",
+          )
 
-          expected_lifecycle = {
-              registry_id: {
-                  "start": f"provider.{registry_id}.start",
-                  "stop": f"provider.{registry_id}.stop",
-                  "restart": f"provider.{registry_id}.restart",
-              }
-              for registry_id in result.migrated_ids
-          }
-          for registry_id in result.migrated_ids:
-              metadata = result.registry[registry_id]["provider_manifest"]
-              assert metadata["gateway_required"] is True
-              assert metadata["direct_external_exposure"] is False
-              assert result.registry[registry_id]["lifecycle_actions"] == expected_lifecycle[registry_id]
-              lifecycle_caps = [
-                  cap for cap in metadata["capabilities"]
-                  if ".lifecycle." in cap["name"]
-              ]
-              assert len(lifecycle_caps) == 3
-              assert all(cap["enforcement"] == "CONTROLLED" for cap in lifecycle_caps)
-              assert all(cap["requires_approval"] is True for cap in lifecycle_caps)
-              assert all("service_availability" in cap["risks"] for cap in lifecycle_caps)
-
-          assert result.registry["google-analytics"]["source_probe"] == "google_analytics"
-          assert result.registry["prestashop"]["source_probe"] == "prestashop"
-          assert result.registry["memory"]["source_probe"] == ""
-          assert result.registry["memory"]["provider_manifest"]["health_contract"]["source_health"] is False
-
-          broker_actions = build_provider_lifecycle_actions(runner="/runner", interlock="/lock")
-          assert set(broker_actions) == {
-              value for mapping in expected_lifecycle.values() for value in mapping.values()
-          }
+          inventory = load_runtime_inventory(
+              Path("control-center/runtime/sofia-os-canonical.json")
+          )
+          domains = {domain.domain_id: domain for domain in inventory.domains}
+          assert len(domains) == 13
+          assert "prestashop" in domains
+          assert "mail" in domains
+          assert "trello" in domains
+          assert "memory" not in domains
+          assert "google-analytics" not in domains
+          assert all(
+              component.lifecycle_enabled is False
+              for domain in inventory.domains
+              for component in domain.components
+          )
+          assert domains["trello"].components[0].gateway_exposed is False
 
           server = Path("control-center/sofia_server.py").read_text(encoding="utf-8")
           assert "legacy.service_action = _direct_lifecycle_disabled" in server
-          assert "SofiaHandler" in server
+          assert 'payload["runtime_inventory"]' in server
+          assert not Path("control-center/gateway/provider_lifecycle_runner.py").exists()
+          assert not Path("control-center/gateway/provider_lifecycle_actions.py").exists()
+
           print(
-              f"validated_manifests={len(result.manifests)} "
-              f"migrated={','.join(result.migrated_ids)} "
-              f"lifecycle_actions={len(broker_actions)}"
+              f"suppressed={','.join(result.suppressed_ids)} "
+              f"domains={len(domains)} "
+              f"lifecycle_policy={inventory.lifecycle_policy}"
           )
           PY
 
       - name: Run unit tests
         run: python -m pytest control-center/tests -q
+
+      - name: Validate JSON inventory
+        run: python -m json.tool control-center/runtime/sofia-os-canonical.json >/dev/null
 
       - name: Validate installer shell syntax
         run: bash -n control-center/scripts/install_local.sh
