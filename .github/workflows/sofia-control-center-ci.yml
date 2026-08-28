@@ -52,6 +52,8 @@ jobs:
             control-center/sofia_provider.py \
             control-center/sofia_registry.py \
             control-center/sofia_source_health.py \
+            control-center/sofia_health.py \
+            control-center/sofia_ui.py \
             control-center/sofia_server.py
 
       - name: Validate provider manifests
@@ -78,6 +80,12 @@ jobs:
               assert metadata["gateway_required"] is True
               assert metadata["direct_external_exposure"] is False
               assert result.registry[registry_id]["source_probe"]
+              assert set(metadata["health_contract"]) == {
+                  "process_health",
+                  "provider_health",
+                  "source_health",
+                  "gateway_health",
+              }
 
           assert result.registry["google-analytics"]["source_probe"] == "google_analytics"
           assert result.registry["prestashop"]["source_probe"] == "prestashop"
