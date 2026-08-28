@@ -131,9 +131,10 @@ def test_repository_prestashop_manifest_is_runtime_ready(tmp_path: Path):
         home=tmp_path / "home",
     )
 
-    assert result.migrated_ids == ("prestashop",)
+    assert result.migrated_ids == ("google-analytics", "prestashop")
     provider = result.registry["prestashop"]
     assert provider["provider_manifest"]["provider_id"] == "provider:prestashop/001"
     assert provider["provider_manifest"]["gateway_required"] is True
     assert provider["provider_manifest"]["direct_external_exposure"] is False
+    assert provider["source_probe"] == "prestashop"
     assert provider["tools_probe"]["python"].endswith("chatgpt-workspace/mcp/prestashop/.venv/bin/python")
