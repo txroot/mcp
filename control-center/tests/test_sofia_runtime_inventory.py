@@ -83,11 +83,11 @@ def test_inventory_rejects_obsolete_domain_reintroduction():
                     "role": "read",
                     "kind": "systemd",
                     "target": "mcp-memory.service",
-                    "status_tool": null,
-                    "gateway_exposed": false,
-                    "lifecycle_enabled": false
+                    "status_tool": None,
+                    "gateway_exposed": False,
+                    "lifecycle_enabled": False,
                 }
-            ]
+            ],
         }
     )
 
