@@ -124,17 +124,27 @@ def test_invalid_manifest_fails_closed(tmp_path: Path):
         load_control_center_registry({}, providers, tmp_path)
 
 
-def test_repository_prestashop_manifest_is_runtime_ready(tmp_path: Path):
+def test_repository_manifests_are_runtime_ready(tmp_path: Path):
     result = load_control_center_registry(
         legacy_registry={},
         providers_dir=CONTROL_CENTER_ROOT / "providers",
         home=tmp_path / "home",
     )
 
-    assert result.migrated_ids == ("google-analytics", "prestashop")
-    provider = result.registry["prestashop"]
-    assert provider["provider_manifest"]["provider_id"] == "provider:prestashop/001"
-    assert provider["provider_manifest"]["gateway_required"] is True
-    assert provider["provider_manifest"]["direct_external_exposure"] is False
-    assert provider["source_probe"] == "prestashop"
-    assert provider["tools_probe"]["python"].endswith("chatgpt-workspace/mcp/prestashop/.venv/bin/python")
+    assert result.migrated_ids == ("google-analytics", "memory", "prestashop")
+
+    memory = result.registry["memory"]
+    assert memory["provider_manifest"]["provider_id"] == "provider:memory/001"
+    assert memory["provider_manifest"]["gateway_required"] is True
+    assert memory["provider_manifest"]["direct_external_exposure"] is False
+    assert memory["provider_manifest"]["health_contract"]["source_health"] is False
+    assert memory["source_probe"] == ""
+    assert memory["services"] == ["mcp-memory.service", "mcp-memory-tunnel.service"]
+    assert memory["tools_probe"]["python"].endswith("mcp-memory/.venv/bin/python")
+
+    prestashop = result.registry["prestashop"]
+    assert prestashop["provider_manifest"]["provider_id"] == "provider:prestashop/001"
+    assert prestashop["provider_manifest"]["gateway_required"] is True
+    assert prestashop["provider_manifest"]["direct_external_exposure"] is False
+    assert prestashop["source_probe"] == "prestashop"
+    assert prestashop["tools_probe"]["python"].endswith("chatgpt-workspace/mcp/prestashop/.venv/bin/python")
