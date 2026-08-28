@@ -28,7 +28,6 @@ def opener_for(payload, status=200):
         assert request.full_url == "http://127.0.0.1:8770/ready"
         assert timeout == 1.5
         return FakeResponse(payload, status=status)
-
     return _open
 
 
@@ -39,6 +38,11 @@ def gateway_payload(**overrides):
         "graph_outcome": "PASS",
         "operations_broker": {
             "available": True,
+            "allowed_actions": [
+                "backup.create",
+                "provider.memory.restart",
+                "provider.prestashop.stop",
+            ],
             "services": {
                 "mcp_gateway": {"state": "running", "health": "healthy"},
             },
@@ -64,17 +68,19 @@ def test_ready_gateway_is_healthy_and_evidence_is_minimized():
         "gateway_service_state": "running",
         "gateway_service_health": "healthy",
         "audit_outcome": "PASS",
+        "provider_lifecycle_actions": [
+            "provider.memory.restart",
+            "provider.prestashop.stop",
+        ],
     }
+    assert "backup.create" not in result["evidence"]["provider_lifecycle_actions"]
     assert "offhost_backup" not in result["evidence"]
     assert "last_event_hash" not in result["evidence"]
     assert "/srv/private" not in json.dumps(result)
 
 
 def test_graph_or_audit_problem_is_degraded_not_healthy():
-    result = probe_gateway_ready(
-        opener=opener_for(gateway_payload(graph_outcome="FAIL"))
-    )
-
+    result = probe_gateway_ready(opener=opener_for(gateway_payload(graph_outcome="FAIL")))
     assert result["ok"] is False
     assert result["state"] == "degraded"
     assert "graph FAIL" in result["text"]
@@ -86,9 +92,7 @@ def test_gateway_service_not_running_is_unhealthy():
         "state": "stopped",
         "health": "unhealthy",
     }
-
     result = probe_gateway_ready(opener=opener_for(payload))
-
     assert result["ok"] is False
     assert result["state"] == "unhealthy"
 
@@ -96,9 +100,7 @@ def test_gateway_service_not_running_is_unhealthy():
 def test_probe_failure_fails_closed_without_exception_details():
     def broken(_request, timeout=0):
         raise ConnectionError("internal endpoint detail")
-
     result = probe_gateway_ready(opener=broken)
-
     assert result == {
         "ok": False,
         "state": "unhealthy",
@@ -110,57 +112,42 @@ def test_probe_failure_fails_closed_without_exception_details():
 def test_gateway_ready_url_is_restricted_to_loopback_ready_path():
     assert validate_gateway_ready_url("http://127.0.0.1:8770/ready") == "http://127.0.0.1:8770/ready"
     assert validate_gateway_ready_url("http://localhost:8770/ready") == "http://localhost:8770/ready"
-
     attempted = False
-
     def must_not_run(_request, timeout=0):
         nonlocal attempted
         attempted = True
         raise AssertionError("network opener must not run")
-
-    result = probe_gateway_ready(
-        "http://example.com:8770/ready",
-        opener=must_not_run,
-    )
+    result = probe_gateway_ready("http://example.com:8770/ready", opener=must_not_run)
     assert attempted is False
     assert result["state"] == "unhealthy"
     assert result["text"] == "Gateway readiness probe failed: ValueError"
 
 
 def test_gateway_evidence_only_attaches_to_gateway_required_provider():
-    payload = {
-        "items": [
-            {"id": "prestashop"},
-            {"id": "memory"},
-        ]
-    }
+    payload = {"items": [{"id": "prestashop"}, {"id": "memory"}]}
     registry = {
         "prestashop": {"provider_manifest": {"gateway_required": True}},
         "memory": {},
     }
     evidence = {"ok": True, "state": "healthy", "text": "Gateway READY"}
-
     result = apply_gateway_evidence(payload, registry, evidence)
-
     assert result["items"][0]["gateway_access"] == evidence
     assert "gateway_access" not in result["items"][1]
 
 
 def test_four_layer_health_preserves_explicit_gateway_degraded_state():
     payload = {
-        "items": [
-            {
-                "id": "prestashop",
-                "services": [{"active": "active"}],
-                "probe": {"live": True, "ready": True, "ready_text": "ready"},
-                "source_access": {"ok": True, "text": "source ok"},
-                "gateway_access": {
-                    "ok": False,
-                    "state": "degraded",
-                    "text": "Gateway READY · graph FAIL",
-                },
-            }
-        ],
+        "items": [{
+            "id": "prestashop",
+            "services": [{"active": "active"}],
+            "probe": {"live": True, "ready": True, "ready_text": "ready"},
+            "source_access": {"ok": True, "text": "source ok"},
+            "gateway_access": {
+                "ok": False,
+                "state": "degraded",
+                "text": "Gateway READY · graph FAIL",
+            },
+        }],
         "summary": {},
     }
     registry = {
@@ -177,9 +164,7 @@ def test_four_layer_health_preserves_explicit_gateway_degraded_state():
             },
         }
     }
-
     result = apply_health_layers(payload, registry)
-
     gateway = result["items"][0]["health_layers"]["gateway"]
     assert gateway["state"] == "degraded"
     assert result["summary"]["health_layers"]["gateway"]["degraded"] == 1
