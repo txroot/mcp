@@ -2,9 +2,9 @@
 
 Interface local de observabilidade e operação assistida dos providers da Sofia OS.
 
-> Estado desta branch: migração gateway-first em desenvolvimento. O runtime legado continua disponível para compatibilidade, mas a autoridade alvo é o Sofia OS Gateway. O Control Center não deve tornar-se um caminho alternativo de execução.
+> Estado desta branch: migração gateway-first em desenvolvimento. A branch não está instalada em produção. O Sofia OS Gateway é a autoridade alvo; o Control Center não pode tornar-se um caminho alternativo de execução.
 
-## Princípio de arquitetura
+## Arquitetura alvo
 
 ```text
 Sofia Control Center
@@ -13,336 +13,343 @@ Sofia OS Gateway
         ↓
 Capability / Contract
         ↓
+Operations Broker
+        ↓
 Provider
         ↓
 Sistema externo
 ```
 
-O Control Center apresenta estado, logs, capabilities e ações disponíveis. A decisão de executar uma ação material deve ser validada pelo Gateway, incluindo contrato aplicável, nível de enforcement, approval quando necessário, preflight, trace e postflight.
+Ações materiais seguem `prepare → CONFIRMO → execute → audit → postflight`. Não existe fallback intencional para lifecycle direto quando a mediação do Gateway não está disponível.
 
-## Estado da migração
+## Estado desta branch
 
-### Concluído nesta branch
+### Implementado
 
-- contrato `ProviderManifest`;
-- `RuntimeContract` para descrever integração operacional sem hardcode no `server.py`;
-- níveis de enforcement `FULL`, `CONTROLLED`, `ADVISORY` e `UNSUPPORTED`;
-- health contratado em `process_health`, `provider_health`, `source_health` e `gateway_health`;
-- health materializado separadamente na API através de `health_layers`;
-- grelha visual Process / Provider / Source / Gateway no dashboard;
-- probe real read-only do Sofia OS Gateway através de `http://127.0.0.1:8770/ready`;
-- projeção minimizada da evidência do Gateway, sem copiar o documento operacional completo;
-- estados Gateway `healthy`, `degraded` e `unhealthy` derivados de evidência real;
-- bloqueio de `direct_external_exposure=true`;
-- obrigatoriedade de `gateway_required=true`;
-- loader de manifests em `sofia_registry.py`;
-- entrypoint transitório `sofia_server.py`;
-- PrestaShop como primeiro provider real migrado para manifest;
-- Google Analytics como segundo provider real migrado para manifest;
-- Memory como terceiro provider real migrado para manifest;
-- suporte comprovado a providers sem source-health externo obrigatório (`source_health=false`);
-- `source_probe` simbólico no runtime contract, sem comandos ou callables vindos do manifest;
-- allowlist de source-health no servidor e adapter genérico em `sofia_source_health.py`;
-- fallback para o registry legado nos providers ainda não migrados;
-- CI GitHub Actions com compilação, validação de manifests, testes e `bash -n`;
-- testes unitários do contrato, registry, source-health, Gateway health, quatro camadas de health e UI.
+- `ProviderManifest` e `RuntimeContract`;
+- enforcement `FULL`, `CONTROLLED`, `ADVISORY`, `UNSUPPORTED`;
+- health separado em Process / Provider / Source / Gateway;
+- Gateway health real via `http://127.0.0.1:8770/ready`;
+- Gateway MCP client stdlib via `http://127.0.0.1:8770/mcp`;
+- URLs Gateway limitados a HTTP loopback e paths exatos;
+- PrestaShop, Google Analytics e Memory manifest-driven;
+- source-health allowlisted para PrestaShop e GA4;
+- Memory com `source_health=false` sem inventar source probe;
+- lifecycle `start/stop/restart` declarado nos três manifests;
+- lifecycle capabilities `CONTROLLED`, risco `service_availability`, approval obrigatório;
+- endpoint legado `/api/action` desativado no `SofiaHandler` candidato;
+- endpoints `/api/lifecycle/prepare` e `/api/lifecycle/execute`;
+- approval localmente ligado à preparação feita pela mesma instância do Control Center;
+- UI two-phase que exige escrever `CONFIRMO` antes da execução;
+- botões lifecycle só ficam ativos quando o Gateway anuncia a ação exata;
+- runner Gateway candidato com allowlist fechada de providers/units;
+- nove ações broker candidatas, sem unit ou comando arbitrário vindo da UI;
+- CI GitHub Actions com compilação, manifests, lifecycle contract, testes e `bash -n`.
 
 ### Ainda não concluído
 
-- Start / Stop / Restart ainda usam a implementação legada e **não estão ainda encaminhados pelo Sofia OS Gateway**;
-- bearer reutilizável ainda existe no HTML legado;
+- o operations broker de produção ainda **não anuncia** as nove ações `provider.*.{start,stop,restart}`;
+- por esse motivo, na branch candidata os botões lifecycle ficam fail-closed/desativados contra o Gateway atual;
+- o runner e o fragmento de broker em `control-center/gateway/` ainda não foram instalados no Gateway de produção;
+- bearer reutilizável continua embebido no HTML legado;
 - Host/Origin/CSRF ainda não foram endurecidos;
 - Host Tools e Google Tasks ainda precisam de manifest próprio;
-- o terminal persistente ainda não está integrado;
-- esta branch ainda não foi instalada nem ativada em produção.
+- `provider-terminal-privileged` ainda não está integrado;
+- não houve merge em `main`, deploy ou restart de produção.
+
+## Providers migrados
+
+| Provider | MCP local | Source health | Lifecycle |
+|---|---|---|---|
+| Memory | `127.0.0.1:8765/mcp` | não obrigatório | Gateway candidate |
+| Google Analytics | `127.0.0.1:8767/mcp` | GA4 read-only | Gateway candidate |
+| PrestaShop | `127.0.0.1:8769/mcp` | bridge read-only | Gateway candidate |
+
+Host Tools e Google Tasks continuam em fallback de registry para observabilidade, mas o entrypoint Sofia não lhes concede lifecycle direto.
 
 ## Provider contract
 
-A fundação está em `sofia_provider.py` e define:
+`sofia_provider.py` define:
 
 - `ProviderManifest`;
 - `Capability`;
 - `RuntimeContract`;
 - `HealthContract`;
 - níveis de enforcement;
-- riscos e necessidade de approval por capability;
-- regras estruturais gateway-first.
+- riscos e approval por capability;
+- regras gateway-first.
 
-Existe um exemplo abstrato em `providers/example.provider.json`.
-
-Um provider gerido pelo Control Center pode acrescentar uma secção `runtime` com:
+Um runtime pode declarar:
 
 - `registry_id`;
-- serviços `systemd`;
+- services;
 - profile/tunnel;
 - endpoint MCP;
-- health endpoint;
-- Admin UI local;
-- tipo de probe;
+- health/admin;
+- probe type;
 - `source_probe` simbólico;
-- configuração de descoberta de tools.
+- tool discovery;
+- lifecycle mapping.
 
-Os manifests não contêm secrets. Caminhos portáveis podem usar `${HOME}`.
+Lifecycle é uma mapping fechada:
 
-`source_probe` não contém código. Aceita apenas um identificador simbólico lowercase e esse identificador tem de existir na allowlist do servidor. Um manifest não pode introduzir shell, um comando ou um callable arbitrário através deste campo. Quando `source_health=false`, o provider pode omitir `source_probe` por completo.
+```json
+{
+  "lifecycle": {
+    "start": "provider.memory.start",
+    "stop": "provider.memory.stop",
+    "restart": "provider.memory.restart"
+  }
+}
+```
 
-## PrestaShop — provider piloto
+O parser exige as três ações em conjunto e exige identidade exata entre `runtime.registry_id` e o nome da operação Gateway. Um manifest Memory não pode, por exemplo, apontar `restart` para `provider.prestashop.restart`.
 
-`providers/prestashop.provider.json` foi o primeiro manifest operacional real.
+## Lifecycle mediado pelo Gateway
 
-Declara, entre outras, as capabilities:
+### Control Center
 
-- `prestashop.health`;
-- `prestashop.orders.read`;
-- `prestashop.catalog.read`;
-- `prestashop.catalog.audit`;
-- `prestashop.stock.read`;
-- `prestashop.abandoned_carts.read`;
-- `prestashop.duplicates.audit`.
+`sofia_lifecycle.py` implementa o fluxo em duas fases.
 
-Todas são atualmente read-only. As capabilities que podem tocar dados de clientes declaram o risco `customer_data`.
+Preparação:
 
-O manifest declara `source_probe: prestashop`; a implementação executável continua na allowlist do servidor.
+1. valida provider e ação contra o manifest;
+2. calcula a ação exata `provider.<registry_id>.<action>`;
+3. consulta `gateway_vm_status` pelo MCP do Gateway;
+4. confirma que a ação está na allowlist live;
+5. chama `gateway_prepare_operation`;
+6. exige `effect_applied=false` e `confirmation_required=CONFIRMO`;
+7. guarda localmente o approval com TTL limitado.
 
-## Google Analytics — segundo provider
+Execução:
 
-`providers/google-analytics.provider.json` prova que o padrão é repetível num segundo serviço read-only.
+1. exige approval ID válido;
+2. exige literalmente `CONFIRMO`;
+3. exige que o approval tenha sido preparado pela mesma instância do Control Center;
+4. falha se o TTL local expirou;
+5. chama `gateway_execute_operation`;
+6. exige `outcome=PASS`, `effect_applied=true` e a mesma ação preparada;
+7. remove o approval local após sucesso.
 
-Declara:
+Não existe chamada `systemctl` em `sofia_lifecycle.py` ou no handler lifecycle do Control Center.
 
-- `google_analytics.health`;
-- `google_analytics.report.read`;
-- `google_analytics.metadata.read`.
+### Endpoint legado
 
-A configuração runtime — serviços, profile, MCP local, health endpoint, Admin UI e tool discovery — deixa de depender da entrada hardcoded no caminho novo. O manifest declara `source_probe: google_analytics`.
+O `server.py` legado continua no repositório para compatibilidade e contém a implementação histórica de `service_action()`.
 
-O source-health continua a usar a verificação GA4 read-only existente. A seleção do probe passa agora pelo registry/manifest; o código executável é resolvido apenas pela allowlist do `sofia_server.py`.
+No entrypoint candidato:
 
-## Memory — terceiro provider
+```text
+legacy.service_action = _direct_lifecycle_disabled
+```
 
-`providers/memory.provider.json` valida uma topologia diferente: o serviço MCP é ele próprio a camada de dados operacional relevante para o Control Center, pelo que não existe uma fonte externa separada a validar.
+Além disso, `SofiaHandler` intercepta `/api/action` e devolve HTTP `410 Gone`. Portanto, mesmo uma chamada manual ao endpoint histórico não executa lifecycle quando a branch candidata é o entrypoint ativo.
 
-O manifest preserva a configuração legada existente:
+### UI
 
-- `mcp-memory.service`;
-- `mcp-memory-tunnel.service`;
-- MCP local `http://127.0.0.1:8765/mcp`;
-- health/admin em `18103`;
-- tool discovery através de `${HOME}/mcp-memory/.venv/bin/python`.
+`sofia_ui.py` substitui os botões históricos por lifecycle Gateway-only.
 
-A migração é deliberadamente conservadora e só declara capabilities read-only:
+Um botão só fica ativo quando:
 
-- `memory.health`;
-- `memory.search.read`;
-- `memory.stats.read`.
+- o provider tem manifest gateway-first;
+- o manifest declara a ação;
+- `/ready` anuncia a ação `provider.*` correspondente.
 
-`memory.search.read` declara o risco `personal_context`. Não foram adicionadas capabilities de escrita nesta migração.
+Ao clicar:
 
-O health contract define `source_health=false` e não declara `source_probe`. Na API/UI, a célula Source fica `unknown` com `required=false`, enquanto Process, Provider e Gateway continuam a ter evidência própria. Isto comprova que as quatro camadas não obrigam a inventar uma dependência externa inexistente.
+1. `/api/lifecycle/prepare`;
+2. prompt explícito para escrever `CONFIRMO`;
+3. `/api/lifecycle/execute`.
 
-## Source-health adapter
+Se o Gateway não anunciar a ação, o botão permanece desativado e a API de preparação também volta a validar a allowlist live.
 
-`sofia_source_health.py` aplica source-health aos itens que declaram `source_probe`:
+## Gateway MCP client
 
-1. lê `source_probe` do registry manifest-driven;
-2. resolve o nome numa allowlist fornecida pelo servidor;
-3. reutiliza um resultado legado já existente para evitar chamadas duplicadas durante a fase de migração;
-4. quando não existe resultado, executa apenas o probe allowlisted;
-5. um probe desconhecido falha de forma segura;
-6. publica `source_health=healthy|unhealthy`;
-7. degrada o estado global quando uma fonte obrigatória está indisponível ou o tunnel necessário não está configurado.
+`sofia_gateway_client.py` não depende do SDK `mcp`.
 
-Providers cujo contrato define `source_health=false`, como Memory, não executam qualquer source probe e não são degradados pela ausência dessa evidência.
+O deployment atual do Gateway foi validado com Streamable HTTP stateless e JSON em:
 
-Este adapter permite remover posteriormente as exceções `if ident == ...` do servidor legado sem alterar o contrato dos manifests.
+```text
+http://127.0.0.1:8770/mcp
+```
 
-## Gateway health real
+O cliente aceita apenas três tools:
 
-`sofia_gateway_health.py` consulta o endpoint read-only do Sofia OS Gateway:
+- `gateway_vm_status`;
+- `gateway_prepare_operation`;
+- `gateway_execute_operation`.
+
+Não pode chamar shell, Vault writes ou outras tools por nome arbitrário. O URL tem de ser HTTP loopback, com porta explícita e path exato `/mcp`. A resposta também tem limite de tamanho e parsing fail-closed.
+
+## Gateway health
+
+`sofia_gateway_health.py` consulta:
 
 ```text
 http://127.0.0.1:8770/ready
 ```
 
-O endpoint foi validado no runtime atual e devolve a readiness canónica do Gateway. O URL pode ser substituído através de `SOFIA_GATEWAY_READY_URL` quando a topologia de deployment o exigir, mas o adapter aceita apenas HTTP em loopback e path exato `/ready`.
-
-O Control Center **não replica o payload integral**. Guarda apenas:
+Retém apenas evidência necessária:
 
 - `service_id`;
 - `status`;
 - `graph_outcome`;
-- disponibilidade do operations broker;
-- `state` e `health` do serviço `mcp_gateway`;
-- `audit_outcome`.
+- broker available;
+- estado/health de `mcp_gateway`;
+- `audit_outcome`;
+- ações `provider.*` filtradas para disponibilidade visual de lifecycle.
 
-Dados de Vault, backups, paths remotos, hashes e outros campos operacionais não entram em `gateway_access`.
+Não replica paths de Vault, backups, hashes ou a allowlist operacional completa.
 
 Classificação:
 
-- `healthy`: Gateway `READY`, serviço `running/healthy`, graph `PASS`, broker disponível e audit `PASS`;
-- `degraded`: Gateway/serviço estão operacionais, mas graph, broker ou audit não cumprem a baseline;
-- `unhealthy`: Gateway não está `READY`, o serviço não está running/healthy ou o probe não consegue obter evidência válida.
+- `healthy`: Gateway `READY`, serviço running/healthy, graph `PASS`, broker disponível e audit `PASS`;
+- `degraded`: runtime disponível mas graph/broker/audit não cumprem baseline;
+- `unhealthy`: Gateway não READY, serviço não healthy/running ou probe inválido.
 
-O resultado é reutilizado por todos os providers com `gateway_required=true` e tem cache curta para não multiplicar probes a cada refresh visual.
+## Candidate Gateway lifecycle runner
+
+`gateway/provider_lifecycle_runner.py` é um artefacto candidato, **não instalado em produção**.
+
+Provider/unit allowlist:
+
+```text
+prestashop
+  mcp-prestashop.service
+  mcp-prestashop-tunnel.service
+
+google-analytics
+  mcp-google-analytics.service
+  mcp-google-analytics-tunnel.service
+
+memory
+  mcp-memory.service
+  mcp-memory-tunnel.service
+```
+
+O runner:
+
+- aceita apenas esses três providers;
+- aceita apenas `start`, `stop`, `restart`;
+- não recebe nomes de units da UI;
+- executa no user manager de `eletrix`;
+- para `stop`, inverte a ordem para desligar tunnel antes do MCP;
+- faz readback de estado antes/depois;
+- exige postflight coerente;
+- devolve resultado JSON limitado a dados operacionais do lifecycle.
+
+`gateway/provider_lifecycle_actions.py` gera exatamente nove entradas candidatas para `ALLOWED_ACTIONS` do operations broker:
+
+```text
+provider.prestashop.start
+provider.prestashop.stop
+provider.prestashop.restart
+provider.google-analytics.start
+provider.google-analytics.stop
+provider.google-analytics.restart
+provider.memory.start
+provider.memory.stop
+provider.memory.restart
+```
+
+Cada comando é envolvido pelo runtime interlock existente. O broker continua a usar o contrato atual de `prepare_operation(action)` e `execute_operation(approval_id, CONFIRMO)`; não foi aberto um interface genérico de systemd.
+
+## Estado live do Gateway
+
+Durante o desenvolvimento deste bloco, o Gateway real foi verificado como operacional e o MCP expôs:
+
+- `gateway_vm_status`;
+- `gateway_prepare_operation`;
+- `gateway_execute_operation`.
+
+O broker de produção ainda não contém `provider.memory.restart` nem as restantes ações candidatas. Uma tentativa de preparação dessa ação foi recusada com `Ação fora da allowlist`, confirmando comportamento fail-closed antes de qualquer deploy do runner.
+
+## Source health
+
+`sofia_source_health.py` só executa probes explicitamente allowlisted pelo entrypoint:
+
+- `google_analytics`;
+- `prestashop`.
+
+Memory declara `source_health=false` e não executa source probe.
 
 ## Quatro camadas de health
 
-`sofia_health.py` enriquece cada item da API com:
+Cada item da API recebe:
 
 ```json
 {
   "health_layers": {
-    "process": {"state": "healthy", "text": "...", "required": true},
-    "provider": {"state": "healthy", "text": "...", "required": true},
-    "source": {"state": "healthy", "text": "...", "required": true},
-    "gateway": {"state": "healthy", "text": "...", "required": true}
+    "process": {"state": "healthy", "required": true},
+    "provider": {"state": "healthy", "required": true},
+    "source": {"state": "unknown", "required": false},
+    "gateway": {"state": "healthy", "required": true}
   }
 }
 ```
 
-Regras atuais:
-
-- **Process** deriva do estado dos serviços registados;
-- **Provider** deriva do live/ready probe local;
-- **Source** deriva do `source_access` produzido pelo probe allowlisted quando o contrato o exige; se `source_health=false`, fica `unknown/required=false` sem penalização;
-- **Gateway** deriva da readiness real e minimizada produzida por `sofia_gateway_health.py` para providers gateway-first;
-- providers legados também recebem as quatro chaves para uniformidade, mas camadas ainda não contratadas ficam `unknown` e `required=false`;
-- o `state` agregado legado é preservado durante a migração para evitar alterações de comportamento no summary e nas automações existentes.
-
-A API acrescenta ainda contagens por layer em `summary.health_layers`.
-
-`sofia_ui.py` injeta no HTML legado uma grelha compacta de quatro células por provider. A transformação é fail-closed: se os anchors esperados do HTML legado mudarem, a inicialização falha em vez de apresentar uma UI parcialmente atualizada.
-
-## Loader de registry
-
-`sofia_registry.py`:
-
-1. copia o registry legado sem o modificar;
-2. lê `providers/*.provider.json`;
-3. valida cada manifest;
-4. falha de forma segura em manifests inválidos ou IDs runtime duplicados;
-5. expande `${HOME}` apenas em configuração runtime;
-6. transporta `source_probe` para o runtime registry, incluindo string vazia quando não aplicável;
-7. sobrepõe apenas os `registry_id` que têm runtime declarado;
-8. mantém compatibilidade com providers ainda não migrados;
-9. adiciona metadata `provider_manifest` ao item runtime para observabilidade.
-
-## Entry point transitório
-
-`sofia_server.py` importa o servidor legado e aplica o registry manifest-driven antes de iniciar o HTTP server.
-
-A allowlist de source-health contém apenas providers que realmente necessitam de fonte externa separada:
-
-- `google_analytics` → probe GA4 read-only existente;
-- `prestashop` → probe PrestaShop read-only existente.
-
-Memory não entra nessa allowlist porque o seu contrato define `source_health=false`.
-
-Depois do payload legado, o entrypoint aplica source-health, uma única observação read-only do Gateway aos providers gateway-first e, finalmente, as quatro camadas de health. A UI é enriquecida por `sofia_ui.py` sem alterar o `server.py` legado, preservando rollback simples.
-
-O unit file da branch aponta para `sofia_server.py`. Isso **não significa que esteja instalado em produção**; o ficheiro é apenas a definição candidata para testes/deploy posterior.
-
-## Função atual do Control Center legado
-
-O serviço corre apenas em `127.0.0.1:18100` e reúne numa única UI:
-
-- providers/MCPs geridos;
-- serviços `systemd --user` associados;
-- estado `online` / `degraded` / `offline`;
-- health/ready da camada local e dependências específicas;
-- perfis `tunnel-client`;
-- Start / Stop / Restart;
-- logs;
-- descoberta dinâmica das MCP tools;
-- ligação à Admin UI técnica dos tunnels quando existe.
-
-Estas capacidades serão migradas progressivamente para provider + Gateway. Durante a migração, nenhuma nova capability privilegiada deve ser adicionada diretamente ao Control Center legado.
-
-## Providers conhecidos no host legado
-
-| Provider | MCP local | Tunnel/Admin | Migração |
-|---|---|---|---|
-| Host Tools | `127.0.0.1:8766/mcp` | `18082` | Legado |
-| Google Tasks | stdio via tunnel | `18102` | Legado |
-| Memory | `127.0.0.1:8765/mcp` | `18103` | **Manifest** |
-| Google Analytics | `127.0.0.1:8767/mcp` | `18104` | **Manifest** |
-| PrestaShop | `127.0.0.1:8769/mcp` | `18105` | **Manifest** |
-
-As portas são configuração do host, não uma exigência do protocolo.
+O `state` legado `online/degraded/offline` permanece temporariamente para compatibilidade.
 
 ## Segurança
 
-### Baseline atual
+Baseline da branch:
 
-- bind apenas em loopback;
-- token de controlo em `~/.config/mcp-control-center/token`, nunca no Git;
-- ações limitadas a units registadas;
-- logs passam por redaction básica de tokens/authorization;
-- Gateway health é read-only e limitado a um documento JSON com limite de tamanho;
-- a projeção de Gateway health é minimizada antes de entrar no status payload;
-- o URL de Gateway health é limitado a HTTP loopback `/ready`;
-- não expor o Control Center diretamente à Internet.
+- Control Center bind em loopback;
+- Gateway health e MCP limitados a loopback;
+- tool allowlist fechada no cliente Gateway;
+- manifests não contêm secrets;
+- direct external exposure proibido;
+- lifecycle sem fallback direto;
+- lifecycle operation ID ligado à identidade do provider;
+- approval local ligado à preparação da mesma instância;
+- `CONFIRMO` obrigatório;
+- runner Gateway com provider/unit allowlist estática;
+- runtime interlock previsto em todas as nove ações broker;
+- CI sem deploy e com `contents: read`.
 
-### Requisitos antes de produção
+Antes de produção ainda é obrigatório:
 
-- remover bearer reutilizável embebido no HTML;
-- autenticar a sessão/UI de forma adequada;
-- validar `Host` e `Origin`;
-- aplicar proteção CSRF às ações de mutação;
-- encaminhar ações materiais pelo Sofia OS Gateway;
-- preservar audit trace e postflight;
-- testar rollback para o entrypoint legado.
+- remover o bearer reutilizável embebido no HTML;
+- autenticar a sessão/UI adequadamente;
+- validar Host e Origin;
+- adicionar proteção CSRF;
+- instalar e testar o runner/broker lifecycle num ambiente isolado;
+- validar owner/user-manager e permissions no host real;
+- validar preflight/postflight de start/stop/restart reais;
+- validar audit trail do broker;
+- testar rollback para o entrypoint anterior.
 
 ## CI
 
-`.github/workflows/sofia-control-center-ci.yml` valida alterações relevantes com permissões `contents: read`:
+`.github/workflows/sofia-control-center-ci.yml` valida:
 
-- compilação dos módulos Python, incluindo source-health, Gateway health, health e UI;
-- validação de todos os manifests;
-- confirmação dos providers migrados;
-- confirmação de `gateway_required=true` e `direct_external_exposure=false`;
-- confirmação dos quatro campos do health contract;
-- confirmação de source probes apenas nos providers cujo contrato os exige;
-- confirmação explícita de `source_health=false` e ausência de source probe no Memory;
-- confirmação do endpoint Gateway default em loopback;
-- testes unitários, incluindo minimização e fail-closed do Gateway probe;
+- compilação de todos os módulos Control Center;
+- compilação dos candidatos Gateway lifecycle;
+- manifests dos três providers;
+- identidade exata dos nove lifecycle action IDs;
+- lifecycle capabilities `CONTROLLED` + approval + `service_availability`;
+- source-health específico por provider;
+- endpoints Gateway default loopback;
+- presença da desativação do lifecycle legado;
+- testes unitários de Gateway client, lifecycle controller, runner, manifests, health e UI;
 - `bash -n` do instalador.
 
-Não existe passo de deploy no workflow.
+Não existe deploy no workflow.
 
-## Instalação candidata
+## Instalação candidata do Control Center
 
-O script desta branch instala `server.py`, `sofia_server.py`, os módulos de provider/registry/source-health/Gateway-health/health/UI e todos os manifests através de `providers/*.provider.json`, compila os ficheiros Python e atualiza o unit file.
+`scripts/install_local.sh` instala os módulos Control Center, incluindo `sofia_gateway_client.py` e `sofia_lifecycle.py`.
 
-```bash
-./scripts/install_local.sh
-systemctl --user status mcp-control-center.service
-```
+Não instala os ficheiros de `control-center/gateway/`; esses artefactos pertencem a uma futura alteração explícita do Gateway/broker e exigem validação separada.
 
-**Não executar em produção sem uma etapa explícita de validação e aprovação.**
+**Não executar o instalador em produção sem uma etapa explícita de validação e aprovação.**
 
-## Adicionar um provider novo
+## Próxima sequência
 
-O alvo é deixar de editar diretamente o registry hardcoded. Um provider deve declarar um manifest validável com:
-
-1. ID e versão;
-2. capabilities;
-3. nível de enforcement por capability;
-4. riscos;
-5. necessidade de approval;
-6. health de processo, provider, fonte e Gateway;
-7. `gateway_required=true`;
-8. `direct_external_exposure=false`;
-9. runtime operacional quando for gerido pelo Control Center;
-10. `source_probe` simbólico apenas quando a disponibilidade da fonte exige verificação própria.
-
-O provider só deve entrar no runtime depois de validação, testes e compatibilidade com o Capability Gateway.
-
-## Sequência seguinte
-
-1. substituir Start / Stop / Restart por operações mediadas pelo Sofia OS Gateway;
-2. hardening da UI/autenticação;
-3. migrar Host Tools e Google Tasks para manifests próprios;
-4. integrar `provider-terminal-privileged`;
-5. testes end-to-end;
-6. apenas depois preparar PR/merge/deploy.
+1. preparar deployment isolado do runner lifecycle e das nove ações no operations broker;
+2. validar start/stop/restart reais num provider piloto, com audit e postflight;
+3. hardening Host/Origin/CSRF/autenticação do Control Center;
+4. migrar Host Tools e Google Tasks para manifests;
+5. integrar `provider-terminal-privileged`;
+6. testes end-to-end e rollback;
+7. só depois preparar PR/merge/deploy de produção.
