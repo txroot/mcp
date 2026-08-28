@@ -1,355 +1,229 @@
 # Sofia Control Center
 
-Interface local de observabilidade e operação assistida dos providers da Sofia OS.
+Interface local de observabilidade e operação assistida da Sofia OS.
 
-> Estado desta branch: migração gateway-first em desenvolvimento. A branch não está instalada em produção. O Sofia OS Gateway é a autoridade alvo; o Control Center não pode tornar-se um caminho alternativo de execução.
+> Estado desta branch: arquitetura reconciliada com o runtime real de `eletrix-server` em 2026-08-28. A branch não está instalada em produção. O Sofia OS Gateway continua a ser a autoridade; o Control Center não pode tornar-se um caminho alternativo de execução.
 
-## Arquitetura alvo
+## Arquitetura real
 
-```text
-Sofia Control Center
-        ↓
-Sofia OS Gateway
-        ↓
-Capability / Contract
-        ↓
-Operations Broker
-        ↓
-Provider
-        ↓
-Sistema externo
-```
-
-Ações materiais seguem `prepare → CONFIRMO → execute → audit → postflight`. Não existe fallback intencional para lifecycle direto quando a mediação do Gateway não está disponível.
-
-## Estado desta branch
-
-### Implementado
-
-- `ProviderManifest` e `RuntimeContract`;
-- enforcement `FULL`, `CONTROLLED`, `ADVISORY`, `UNSUPPORTED`;
-- health separado em Process / Provider / Source / Gateway;
-- Gateway health real via `http://127.0.0.1:8770/ready`;
-- Gateway MCP client stdlib via `http://127.0.0.1:8770/mcp`;
-- URLs Gateway limitados a HTTP loopback e paths exatos;
-- PrestaShop, Google Analytics e Memory manifest-driven;
-- source-health allowlisted para PrestaShop e GA4;
-- Memory com `source_health=false` sem inventar source probe;
-- lifecycle `start/stop/restart` declarado nos três manifests;
-- lifecycle capabilities `CONTROLLED`, risco `service_availability`, approval obrigatório;
-- endpoint legado `/api/action` desativado no `SofiaHandler` candidato;
-- endpoints `/api/lifecycle/prepare` e `/api/lifecycle/execute`;
-- approval localmente ligado à preparação feita pela mesma instância do Control Center;
-- UI two-phase que exige escrever `CONFIRMO` antes da execução;
-- botões lifecycle só ficam ativos quando o Gateway anuncia a ação exata;
-- runner Gateway candidato com allowlist fechada de providers/units;
-- nove ações broker candidatas, sem unit ou comando arbitrário vindo da UI;
-- CI GitHub Actions com compilação, manifests, lifecycle contract, testes e `bash -n`.
-
-### Ainda não concluído
-
-- o operations broker de produção ainda **não anuncia** as nove ações `provider.*.{start,stop,restart}`;
-- por esse motivo, na branch candidata os botões lifecycle ficam fail-closed/desativados contra o Gateway atual;
-- o runner e o fragmento de broker em `control-center/gateway/` ainda não foram instalados no Gateway de produção;
-- bearer reutilizável continua embebido no HTML legado;
-- Host/Origin/CSRF ainda não foram endurecidos;
-- Host Tools e Google Tasks ainda precisam de manifest próprio;
-- `provider-terminal-privileged` ainda não está integrado;
-- não houve merge em `main`, deploy ou restart de produção.
-
-## Providers migrados
-
-| Provider | MCP local | Source health | Lifecycle |
-|---|---|---|---|
-| Memory | `127.0.0.1:8765/mcp` | não obrigatório | Gateway candidate |
-| Google Analytics | `127.0.0.1:8767/mcp` | GA4 read-only | Gateway candidate |
-| PrestaShop | `127.0.0.1:8769/mcp` | bridge read-only | Gateway candidate |
-
-Host Tools e Google Tasks continuam em fallback de registry para observabilidade, mas o entrypoint Sofia não lhes concede lifecycle direto.
-
-## Provider contract
-
-`sofia_provider.py` define:
-
-- `ProviderManifest`;
-- `Capability`;
-- `RuntimeContract`;
-- `HealthContract`;
-- níveis de enforcement;
-- riscos e approval por capability;
-- regras gateway-first.
-
-Um runtime pode declarar:
-
-- `registry_id`;
-- services;
-- profile/tunnel;
-- endpoint MCP;
-- health/admin;
-- probe type;
-- `source_probe` simbólico;
-- tool discovery;
-- lifecycle mapping.
-
-Lifecycle é uma mapping fechada:
-
-```json
-{
-  "lifecycle": {
-    "start": "provider.memory.start",
-    "stop": "provider.memory.stop",
-    "restart": "provider.memory.restart"
-  }
-}
-```
-
-O parser exige as três ações em conjunto e exige identidade exata entre `runtime.registry_id` e o nome da operação Gateway. Um manifest Memory não pode, por exemplo, apontar `restart` para `provider.prestashop.restart`.
-
-## Lifecycle mediado pelo Gateway
-
-### Control Center
-
-`sofia_lifecycle.py` implementa o fluxo em duas fases.
-
-Preparação:
-
-1. valida provider e ação contra o manifest;
-2. calcula a ação exata `provider.<registry_id>.<action>`;
-3. consulta `gateway_vm_status` pelo MCP do Gateway;
-4. confirma que a ação está na allowlist live;
-5. chama `gateway_prepare_operation`;
-6. exige `effect_applied=false` e `confirmation_required=CONFIRMO`;
-7. guarda localmente o approval com TTL limitado.
-
-Execução:
-
-1. exige approval ID válido;
-2. exige literalmente `CONFIRMO`;
-3. exige que o approval tenha sido preparado pela mesma instância do Control Center;
-4. falha se o TTL local expirou;
-5. chama `gateway_execute_operation`;
-6. exige `outcome=PASS`, `effect_applied=true` e a mesma ação preparada;
-7. remove o approval local após sucesso.
-
-Não existe chamada `systemctl` em `sofia_lifecycle.py` ou no handler lifecycle do Control Center.
-
-### Endpoint legado
-
-O `server.py` legado continua no repositório para compatibilidade e contém a implementação histórica de `service_action()`.
-
-No entrypoint candidato:
+A topologia atual já não corresponde ao antigo modelo “um MCP local por card”. O runtime real é:
 
 ```text
-legacy.service_action = _direct_lifecycle_disabled
+ChatGPT
+   ↓
+Sofia OS Gateway :8770
+   ↓
+contracts / approvals / audit
+   ↓
+providers especializados
+   ↓
+Unix sockets, containers e serviços systemd
+   ↓
+sistemas externos
 ```
 
-Além disso, `SofiaHandler` intercepta `/api/action` e devolve HTTP `410 Gone`. Portanto, mesmo uma chamada manual ao endpoint histórico não executa lifecycle quando a branch candidata é o entrypoint ativo.
+Os providers de leitura e escrita são frequentemente separados. Exemplo: Gmail tem providers independentes para leitura, modificar, rascunhos e envio.
 
-### UI
+## Reconciliação de 2026-08-28
 
-`sofia_ui.py` substitui os botões históricos por lifecycle Gateway-only.
+A auditoria live confirmou:
 
-Um botão só fica ativo quando:
+- Gateway `READY`, graph `PASS` e operations broker disponível;
+- `pedrovault-mcp-production` healthy;
+- `pedrovault-mcp-tunnel.service` active;
+- `pedrovault-ops-broker.service` active;
+- `sofia-ssh-mcp` healthy;
+- `pedrovault-pc-edge-provider` healthy;
+- providers reais de Calendar, Contacts, Drive, Elektro3, Gmail, Google Places, Sheets, Tasks, Trello e PrestaShop ativos;
+- providers atuais usam predominantemente Unix sockets em `/run/pedrovault-provider/...`;
+- vários containers `green`, `canary` e históricos continuam presentes, mas não são tratados como runtime canónico pelo Control Center.
 
-- o provider tem manifest gateway-first;
-- o manifest declara a ação;
-- `/ready` anuncia a ação `provider.*` correspondente.
-
-Ao clicar:
-
-1. `/api/lifecycle/prepare`;
-2. prompt explícito para escrever `CONFIRMO`;
-3. `/api/lifecycle/execute`.
-
-Se o Gateway não anunciar a ação, o botão permanece desativado e a API de preparação também volta a validar a allowlist live.
-
-## Gateway MCP client
-
-`sofia_gateway_client.py` não depende do SDK `mcp`.
-
-O deployment atual do Gateway foi validado com Streamable HTTP stateless e JSON em:
+Também foi confirmado que os antigos serviços/portas do Control Center não existem neste host:
 
 ```text
-http://127.0.0.1:8770/mcp
+mcp-memory.service                 AUSENTE
+mcp-google-analytics.service       AUSENTE
+mcp-prestashop.service             AUSENTE
+127.0.0.1:8765 / 8767 / 8769      AUSENTES
+127.0.0.1:18103 / 18104 / 18105   AUSENTES
 ```
 
-O cliente aceita apenas três tools:
+Por isso, os antigos cards Memory, Google Analytics e PrestaShop-single-MCP não podem ser usados como autoridade operacional.
 
-- `gateway_vm_status`;
-- `gateway_prepare_operation`;
-- `gateway_execute_operation`.
+## Inventário canónico
 
-Não pode chamar shell, Vault writes ou outras tools por nome arbitrário. O URL tem de ser HTTP loopback, com porta explícita e path exato `/mcp`. A resposta também tem limite de tamanho e parsing fail-closed.
+`runtime/sofia-os-canonical.json` é o inventário reconciliado usado pela branch.
 
-## Gateway health
+Domínios atuais:
 
-`sofia_gateway_health.py` consulta:
+| Domínio | Componentes canónicos | Estado de integração Gateway |
+|---|---:|---|
+| Sofia OS Core | Gateway, Operations Broker, Secure Tunnel | exposto |
+| Privileged SSH | `sofia-ssh-mcp` | exposto |
+| PC Edge | `pedrovault-pc-edge-provider` | exposto |
+| PrestaShop | 6 providers | exposto |
+| Gmail | 4 providers | exposto |
+| Google Calendar | 2 providers | exposto |
+| Google Tasks | 2 providers | exposto |
+| Google Sheets | 2 providers | exposto |
+| Google Contacts | 1 provider | exposto |
+| Google Drive | 1 provider | exposto |
+| Google Places | 1 provider | exposto |
+| Elektro3 | 1 provider | exposto |
+| Trello | 1 provider read/write | **provider healthy; tools ainda não expostas pelo Gateway** |
+
+Memory, Google Analytics e Host Tools não aparecem como domínios canónicos porque não existe runtime correspondente na arquitetura atual.
+
+## PrestaShop real
+
+PrestaShop é um domínio composto, não um MCP único:
+
+- `pedrovault-prestashop-provider-production-r55` — leitura principal;
+- `pedrovault-prestashop-sofiabridge-readonly-provider.service` — SofiaBridge read-only;
+- `pedrovault-prestashop-catalog-status-provider.service` — alteração controlada de `active`;
+- `pedrovault-prestashop-category-writer-r82` — Category Writer;
+- `pedrovault-prestashop-seo-write-provider.service` — SEO controlado;
+- `pedrovault-prestashop-product-description-write-provider.service` — descrição de produto controlada.
+
+A health live confirmou os providers principais como `READY`/healthy.
+
+## Trello
+
+O provider Trello existe e está ativo:
+
+```text
+pedrovault-trello-readwrite-provider.service
+/run/pedrovault-provider/trello-readwrite.sock
+```
+
+Readiness live confirmou leitura e escrita, com capabilities de boards/lists/cards, criação de card e atualização de card. No entanto, a lista de tools atual do Gateway ainda não contém `trello.*`. Por isso o inventário marca Trello como `gateway_exposed=false` e o Control Center não deve fingir que a integração está concluída.
+
+## Registry legado
+
+O registry hardcoded do `server.py` continua no ficheiro apenas como compatibilidade histórica. A branch candidata suprime explicitamente os cinco IDs obsoletos:
+
+```text
+host-tools
+google-tasks
+memory
+google-analytics
+prestashop
+```
+
+Os manifests correspondentes usam `runtime.enabled=false`. Um runtime desativado não pode declarar services, source probe, tool probe ou lifecycle.
+
+`sofia_registry.py` remove esses IDs do registry em memória antes de o servidor candidato arrancar. Isto impede cards falsos e impede lifecycle baseado numa topologia inexistente.
+
+## Vista do Control Center
+
+A API candidata acrescenta:
+
+```text
+runtime_inventory
+legacy_registry_reconciliation
+```
+
+A UI renderiza os domínios reais do inventário canónico. Durante esta fase, cada domínio é apresentado como `reconciled`: a topologia é canónica, mas o live health por componente ainda será ligado através de uma futura API de inventory/status do Gateway.
+
+## Lifecycle
+
+Lifecycle permanece **fail-closed**.
+
+O mecanismo genérico `prepare → CONFIRMO → execute` continua disponível no código e o endpoint legado `/api/action` continua desativado. Porém:
+
+- nenhum componente do inventário canónico tem `lifecycle_enabled=true`;
+- o runner anterior das nove ações foi removido da branch;
+- as antigas ações `provider.memory.*`, `provider.google-analytics.*` e `provider.prestashop.*` não são válidas para o runtime real;
+- o operations broker de produção não foi alterado.
+
+Só será criado lifecycle depois de o Gateway fornecer uma identidade canónica para cada provider/componente real.
+
+## Runtime inventory contract
+
+`sofia_runtime_inventory.py` valida:
+
+- IDs de domínio únicos;
+- IDs de componentes únicos por domínio;
+- targets não reutilizados entre domínios;
+- tipos de runtime conhecidos (`docker`, `systemd`, `remote`);
+- roles controladas;
+- presença dos 13 domínios reconciliados;
+- ausência de Memory, Google Analytics e Host Tools como domínios atuais;
+- lifecycle obrigatoriamente desativado nesta fase;
+- lista exata dos IDs legados que devem ser suprimidos.
+
+O inventário é topologia, não snapshot de health. Estados efémeros não são gravados no ficheiro.
+
+## Gateway health e client
+
+`sofia_gateway_health.py` continua a consultar apenas:
 
 ```text
 http://127.0.0.1:8770/ready
 ```
 
-Retém apenas evidência necessária:
-
-- `service_id`;
-- `status`;
-- `graph_outcome`;
-- broker available;
-- estado/health de `mcp_gateway`;
-- `audit_outcome`;
-- ações `provider.*` filtradas para disponibilidade visual de lifecycle.
-
-Não replica paths de Vault, backups, hashes ou a allowlist operacional completa.
-
-Classificação:
-
-- `healthy`: Gateway `READY`, serviço running/healthy, graph `PASS`, broker disponível e audit `PASS`;
-- `degraded`: runtime disponível mas graph/broker/audit não cumprem baseline;
-- `unhealthy`: Gateway não READY, serviço não healthy/running ou probe inválido.
-
-## Candidate Gateway lifecycle runner
-
-`gateway/provider_lifecycle_runner.py` é um artefacto candidato, **não instalado em produção**.
-
-Provider/unit allowlist:
+`sofia_gateway_client.py` continua limitado a:
 
 ```text
-prestashop
-  mcp-prestashop.service
-  mcp-prestashop-tunnel.service
-
-google-analytics
-  mcp-google-analytics.service
-  mcp-google-analytics-tunnel.service
-
-memory
-  mcp-memory.service
-  mcp-memory-tunnel.service
+http://127.0.0.1:8770/mcp
 ```
 
-O runner:
-
-- aceita apenas esses três providers;
-- aceita apenas `start`, `stop`, `restart`;
-- não recebe nomes de units da UI;
-- executa no user manager de `eletrix`;
-- para `stop`, inverte a ordem para desligar tunnel antes do MCP;
-- faz readback de estado antes/depois;
-- exige postflight coerente;
-- devolve resultado JSON limitado a dados operacionais do lifecycle.
-
-`gateway/provider_lifecycle_actions.py` gera exatamente nove entradas candidatas para `ALLOWED_ACTIONS` do operations broker:
-
-```text
-provider.prestashop.start
-provider.prestashop.stop
-provider.prestashop.restart
-provider.google-analytics.start
-provider.google-analytics.stop
-provider.google-analytics.restart
-provider.memory.start
-provider.memory.stop
-provider.memory.restart
-```
-
-Cada comando é envolvido pelo runtime interlock existente. O broker continua a usar o contrato atual de `prepare_operation(action)` e `execute_operation(approval_id, CONFIRMO)`; não foi aberto um interface genérico de systemd.
-
-## Estado live do Gateway
-
-Durante o desenvolvimento deste bloco, o Gateway real foi verificado como operacional e o MCP expôs:
-
-- `gateway_vm_status`;
-- `gateway_prepare_operation`;
-- `gateway_execute_operation`.
-
-O broker de produção ainda não contém `provider.memory.restart` nem as restantes ações candidatas. Uma tentativa de preparação dessa ação foi recusada com `Ação fora da allowlist`, confirmando comportamento fail-closed antes de qualquer deploy do runner.
-
-## Source health
-
-`sofia_source_health.py` só executa probes explicitamente allowlisted pelo entrypoint:
-
-- `google_analytics`;
-- `prestashop`.
-
-Memory declara `source_health=false` e não executa source probe.
-
-## Quatro camadas de health
-
-Cada item da API recebe:
-
-```json
-{
-  "health_layers": {
-    "process": {"state": "healthy", "required": true},
-    "provider": {"state": "healthy", "required": true},
-    "source": {"state": "unknown", "required": false},
-    "gateway": {"state": "healthy", "required": true}
-  }
-}
-```
-
-O `state` legado `online/degraded/offline` permanece temporariamente para compatibilidade.
+Ambos exigem HTTP loopback e paths exatos. O Control Center não recebe liberdade para chamar hosts arbitrários.
 
 ## Segurança
 
-Baseline da branch:
+Mantém-se:
 
-- Control Center bind em loopback;
-- Gateway health e MCP limitados a loopback;
-- tool allowlist fechada no cliente Gateway;
-- manifests não contêm secrets;
+- bind do Control Center em loopback;
+- Gateway-only para ações materiais;
+- `/api/action` legado desativado no entrypoint candidato;
+- sem fallback silencioso para `systemctl` direto;
+- manifests sem secrets;
 - direct external exposure proibido;
-- lifecycle sem fallback direto;
-- lifecycle operation ID ligado à identidade do provider;
-- approval local ligado à preparação da mesma instância;
-- `CONFIRMO` obrigatório;
-- runner Gateway com provider/unit allowlist estática;
-- runtime interlock previsto em todas as nove ações broker;
 - CI sem deploy e com `contents: read`.
 
-Antes de produção ainda é obrigatório:
+Antes de qualquer deploy do Control Center ainda falta:
 
-- remover o bearer reutilizável embebido no HTML;
-- autenticar a sessão/UI adequadamente;
-- validar Host e Origin;
+- remover o bearer reutilizável embebido no HTML legado;
+- autenticar a sessão/UI corretamente;
+- validar `Host` e `Origin`;
 - adicionar proteção CSRF;
-- instalar e testar o runner/broker lifecycle num ambiente isolado;
-- validar owner/user-manager e permissions no host real;
-- validar preflight/postflight de start/stop/restart reais;
-- validar audit trail do broker;
-- testar rollback para o entrypoint anterior.
+- ligar live health dos componentes do inventário ao Gateway;
+- só depois desenhar lifecycle para identities reais;
+- testar rollback.
 
 ## CI
 
 `.github/workflows/sofia-control-center-ci.yml` valida:
 
-- compilação de todos os módulos Control Center;
-- compilação dos candidatos Gateway lifecycle;
-- manifests dos três providers;
-- identidade exata dos nove lifecycle action IDs;
-- lifecycle capabilities `CONTROLLED` + approval + `service_availability`;
-- source-health específico por provider;
-- endpoints Gateway default loopback;
-- presença da desativação do lifecycle legado;
-- testes unitários de Gateway client, lifecycle controller, runner, manifests, health e UI;
+- compilação dos módulos Python;
+- manifests e supressão do registry legado;
+- inventário canónico e os 13 domínios;
+- lifecycle desativado em todos os componentes reconciliados;
+- ausência dos runners antigos de lifecycle incorreto;
+- rendering da vista por domínios;
+- testes unitários;
+- JSON do inventário;
 - `bash -n` do instalador.
 
-Não existe deploy no workflow.
+Não existe qualquer passo de deploy.
 
-## Instalação candidata do Control Center
+## Instalação candidata
 
-`scripts/install_local.sh` instala os módulos Control Center, incluindo `sofia_gateway_client.py` e `sofia_lifecycle.py`.
+`scripts/install_local.sh` instala também:
 
-Não instala os ficheiros de `control-center/gateway/`; esses artefactos pertencem a uma futura alteração explícita do Gateway/broker e exigem validação separada.
+- `sofia_runtime_inventory.py`;
+- `runtime/sofia-os-canonical.json`.
 
-**Não executar o instalador em produção sem uma etapa explícita de validação e aprovação.**
+**Não executar em produção sem validação e aprovação explícitas.**
 
 ## Próxima sequência
 
-1. preparar deployment isolado do runner lifecycle e das nove ações no operations broker;
-2. validar start/stop/restart reais num provider piloto, com audit e postflight;
-3. hardening Host/Origin/CSRF/autenticação do Control Center;
-4. migrar Host Tools e Google Tasks para manifests;
-5. integrar `provider-terminal-privileged`;
-6. testes end-to-end e rollback;
-7. só depois preparar PR/merge/deploy de produção.
+1. criar no Gateway uma API read-only `provider inventory/status` canónica;
+2. alimentar Process/Provider/Source/Gateway health por componente real;
+3. expor Trello no Gateway ou marcar formalmente a integração como incompleta;
+4. desenhar lifecycle apenas para components/IDs canónicos;
+5. hardening Host/Origin/CSRF/autenticação;
+6. rever e remover containers green/canary/históricos depois de confirmar que não são necessários;
+7. testes end-to-end e rollback;
+8. só depois preparar PR/merge/deploy.
