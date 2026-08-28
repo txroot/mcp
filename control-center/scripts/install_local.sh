@@ -14,6 +14,7 @@ install -m 0644 "$SRC_DIR/sofia_server.py" "$APP_DIR/sofia_server.py"
 install -m 0644 "$SRC_DIR/sofia_provider.py" "$APP_DIR/sofia_provider.py"
 install -m 0644 "$SRC_DIR/sofia_registry.py" "$APP_DIR/sofia_registry.py"
 install -m 0644 "$SRC_DIR/sofia_runtime_inventory.py" "$APP_DIR/sofia_runtime_inventory.py"
+install -m 0644 "$SRC_DIR/sofia_provider_inventory.py" "$APP_DIR/sofia_provider_inventory.py"
 install -m 0644 "$SRC_DIR/sofia_source_health.py" "$APP_DIR/sofia_source_health.py"
 install -m 0644 "$SRC_DIR/sofia_gateway_health.py" "$APP_DIR/sofia_gateway_health.py"
 install -m 0644 "$SRC_DIR/sofia_gateway_client.py" "$APP_DIR/sofia_gateway_client.py"
@@ -38,6 +39,7 @@ python3 -m py_compile \
   "$APP_DIR/sofia_provider.py" \
   "$APP_DIR/sofia_registry.py" \
   "$APP_DIR/sofia_runtime_inventory.py" \
+  "$APP_DIR/sofia_provider_inventory.py" \
   "$APP_DIR/sofia_source_health.py" \
   "$APP_DIR/sofia_gateway_health.py" \
   "$APP_DIR/sofia_gateway_client.py" \
