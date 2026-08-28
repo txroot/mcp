@@ -96,6 +96,42 @@ def test_scalar_runtime_services_are_rejected():
         manifest_from_dict(raw)
 
 
+def test_enabled_runtime_requires_services():
+    raw = base_manifest()
+    raw["runtime"] = {"registry_id": "example", "services": []}
+
+    with pytest.raises(ValueError, match="at least one service"):
+        manifest_from_dict(raw)
+
+
+def test_disabled_runtime_can_suppress_legacy_registry_without_services():
+    raw = base_manifest()
+    raw["runtime"] = {
+        "registry_id": "example",
+        "enabled": False,
+        "services": [],
+    }
+
+    manifest = manifest_from_dict(raw)
+
+    assert manifest.runtime is not None
+    assert manifest.runtime.enabled is False
+    assert manifest.runtime.services == ()
+
+
+def test_disabled_runtime_rejects_operational_configuration():
+    raw = base_manifest()
+    raw["runtime"] = {
+        "registry_id": "example",
+        "enabled": False,
+        "services": [],
+        "source_probe": "example",
+    }
+
+    with pytest.raises(ValueError, match="disabled runtime.source_probe"):
+        manifest_from_dict(raw)
+
+
 def test_load_manifest_from_json(tmp_path: Path):
     path = tmp_path / "provider.json"
     path.write_text(json.dumps(base_manifest()), encoding="utf-8")
