@@ -11,26 +11,24 @@ from sofia_source_health import apply_source_health
 PROVIDERS_DIR = Path(__file__).resolve().parents[1] / "providers"
 
 
-def test_google_analytics_manifest_is_migrated_from_repository(tmp_path: Path):
+def test_google_analytics_repository_manifest_suppresses_obsolete_runtime(tmp_path: Path):
     result = load_control_center_registry(
-        legacy_registry={},
+        legacy_registry={"google-analytics": {"name": "legacy"}},
         providers_dir=PROVIDERS_DIR,
         home=tmp_path / "home",
     )
 
-    config = result.registry["google-analytics"]
-    manifest = result.manifests["provider:google-analytics/001"]
+    manifest = result.manifests["provider:google-analytics/legacy-control-center/001"]
 
-    assert "google-analytics" in result.migrated_ids
-    assert config["source_probe"] == "google_analytics"
-    assert config["services"] == [
-        "mcp-google-analytics.service",
-        "mcp-google-analytics-tunnel.service",
-    ]
+    assert "google-analytics" not in result.registry
+    assert "google-analytics" in result.suppressed_ids
+    assert "google-analytics" not in result.migrated_ids
     assert manifest.gateway_required is True
     assert manifest.direct_external_exposure is False
-    assert manifest.health.source_health is True
-    assert manifest.capability("google_analytics.report.read") is not None
+    assert manifest.runtime is not None
+    assert manifest.runtime.enabled is False
+    assert manifest.runtime.source_probe == ""
+    assert manifest.capabilities == ()
 
 
 def test_source_health_uses_existing_result_without_duplicate_probe():
