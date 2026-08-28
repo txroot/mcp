@@ -28,6 +28,9 @@ O Control Center apresenta estado, logs, capabilities e ações disponíveis. A 
 - `RuntimeContract` para descrever integração operacional sem hardcode no `server.py`;
 - níveis de enforcement `FULL`, `CONTROLLED`, `ADVISORY` e `UNSUPPORTED`;
 - health contratado em `process_health`, `provider_health`, `source_health` e `gateway_health`;
+- health materializado separadamente na API através de `health_layers`;
+- grelha visual Process / Provider / Source / Gateway no dashboard;
+- estado Gateway `unknown` enquanto não existir evidência real, sem o promover artificialmente a healthy;
 - bloqueio de `direct_external_exposure=true`;
 - obrigatoriedade de `gateway_required=true`;
 - loader de manifests em `sofia_registry.py`;
@@ -38,7 +41,7 @@ O Control Center apresenta estado, logs, capabilities e ações disponíveis. A 
 - allowlist de source-health no servidor e adapter genérico em `sofia_source_health.py`;
 - fallback para o registry legado nos providers ainda não migrados;
 - CI GitHub Actions com compilação, validação de manifests, testes e `bash -n`;
-- testes unitários do contrato, registry e source-health.
+- testes unitários do contrato, registry, source-health, quatro camadas de health e UI.
 
 ### Ainda não concluído
 
@@ -46,7 +49,7 @@ O Control Center apresenta estado, logs, capabilities e ações disponíveis. A 
 - bearer reutilizável ainda existe no HTML legado;
 - Host/Origin/CSRF ainda não foram endurecidos;
 - Host Tools, Google Tasks e Memory ainda precisam de manifest próprio;
-- os quatro níveis de health ainda não estão apresentados separadamente na API/UI;
+- Gateway health ainda não tem probe/evidência real e aparece corretamente como `unknown` nos providers gateway-first;
 - o terminal persistente ainda não está integrado;
 - esta branch ainda não foi instalada nem ativada em produção.
 
@@ -126,6 +129,34 @@ O source-health continua a usar a verificação GA4 read-only existente. A sele�
 
 Este adapter permite remover posteriormente as exceções `if ident == ...` do servidor legado sem alterar o contrato dos manifests.
 
+## Quatro camadas de health
+
+`sofia_health.py` enriquece cada item da API com:
+
+```json
+{
+  "health_layers": {
+    "process": {"state": "healthy", "text": "...", "required": true},
+    "provider": {"state": "healthy", "text": "...", "required": true},
+    "source": {"state": "healthy", "text": "...", "required": true},
+    "gateway": {"state": "unknown", "text": "...", "required": true}
+  }
+}
+```
+
+Regras atuais:
+
+- **Process** deriva do estado dos serviços registados;
+- **Provider** deriva do live/ready probe local;
+- **Source** deriva do `source_access` produzido pelo probe allowlisted;
+- **Gateway** só fica healthy/unhealthy quando existir `gateway_access` real; enquanto essa evidência não estiver ligada, providers gateway-first aparecem como `unknown`;
+- providers legados também recebem as quatro chaves para uniformidade, mas camadas ainda não contratadas ficam `unknown` e `required=false`;
+- o `state` agregado legado é preservado durante a migração para evitar alterações de comportamento no summary e nas automações existentes.
+
+A API acrescenta ainda contagens por layer em `summary.health_layers`.
+
+`sofia_ui.py` injeta no HTML legado uma grelha compacta de quatro células por provider. A transformação é fail-closed: se os anchors esperados do HTML legado mudarem, a inicialização falha em vez de apresentar uma UI parcialmente atualizada.
+
 ## Loader de registry
 
 `sofia_registry.py`:
@@ -149,7 +180,7 @@ Também instala a allowlist de source-health:
 - `google_analytics` → probe GA4 read-only existente;
 - `prestashop` → probe PrestaShop read-only existente.
 
-Isto permite migrar provider a provider sem reescrever já o `server.py` monolítico e dá rollback simples: o `server.py` original permanece intacto nesta fase.
+Depois do payload legado, o entrypoint aplica source-health e as quatro camadas de health. A UI é enriquecida por `sofia_ui.py` sem alterar o `server.py` legado, preservando rollback simples.
 
 O unit file da branch aponta para `sofia_server.py`. Isso **não significa que esteja instalado em produção**; o ficheiro é apenas a definição candidata para testes/deploy posterior.
 
@@ -198,7 +229,7 @@ As portas são configuração do host, não uma exigência do protocolo.
 - validar `Host` e `Origin`;
 - aplicar proteção CSRF às ações de mutação;
 - encaminhar ações materiais pelo Sofia OS Gateway;
-- distinguir process, provider, source e gateway health com evidência própria;
+- ligar gateway health a evidência real do Gateway;
 - preservar audit trace e postflight;
 - testar rollback para o entrypoint legado.
 
@@ -206,10 +237,11 @@ As portas são configuração do host, não uma exigência do protocolo.
 
 `.github/workflows/sofia-control-center-ci.yml` valida alterações relevantes com permissões `contents: read`:
 
-- compilação dos módulos Python;
+- compilação dos módulos Python, incluindo health e UI;
 - validação de todos os manifests;
 - confirmação dos providers migrados;
 - confirmação de `gateway_required=true` e `direct_external_exposure=false`;
+- confirmação dos quatro campos do health contract;
 - confirmação de source probes declarados;
 - testes unitários;
 - `bash -n` do instalador.
@@ -218,7 +250,7 @@ Não existe passo de deploy no workflow.
 
 ## Instalação candidata
 
-O script desta branch instala `server.py`, `sofia_server.py`, os módulos de provider/registry/source-health e os manifests, compila os ficheiros Python e atualiza o unit file.
+O script desta branch instala `server.py`, `sofia_server.py`, os módulos de provider/registry/source-health/health/UI e os manifests, compila os ficheiros Python e atualiza o unit file.
 
 ```bash
 ./scripts/install_local.sh
@@ -246,7 +278,7 @@ O provider só deve entrar no runtime depois de validação, testes e compatibil
 
 ## Sequência seguinte
 
-1. apresentar separadamente process/provider/source/gateway health na API e UI;
+1. ligar `gateway_health` a evidência real do Sofia OS Gateway;
 2. migrar um terceiro provider simples para confirmar repetibilidade;
 3. substituir Start / Stop / Restart por operações mediadas pelo Sofia OS Gateway;
 4. hardening da UI/autenticação;
