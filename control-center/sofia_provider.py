@@ -51,6 +51,7 @@ class RuntimeContract:
     probe_type: str = "http"
     source_probe: str = ""
     tools_probe: dict[str, Any] | None = None
+    lifecycle_actions: dict[str, str] | None = None
 
     def validate(self) -> None:
         errors: list[str] = []
@@ -66,6 +67,16 @@ class RuntimeContract:
             errors.append("runtime.probe_type must be 'http' or 'tcp'")
         if self.source_probe and not re.fullmatch(r"[a-z0-9_]+", self.source_probe):
             errors.append("runtime.source_probe must be a symbolic lowercase identifier")
+
+        lifecycle = self.lifecycle_actions or {}
+        if set(lifecycle) - {"start", "stop", "restart"}:
+            errors.append("runtime.lifecycle supports only start, stop and restart")
+        for action, gateway_action in lifecycle.items():
+            expected = f"provider.{self.registry_id}.{action}"
+            if gateway_action != expected:
+                errors.append(f"runtime.lifecycle.{action} must be exactly '{expected}'")
+        if lifecycle and set(lifecycle) != {"start", "stop", "restart"}:
+            errors.append("runtime.lifecycle must declare start, stop and restart together")
         if errors:
             raise ValueError("; ".join(errors))
 
@@ -135,6 +146,9 @@ def manifest_from_dict(raw: dict[str, Any]) -> ProviderManifest:
     runtime_raw = raw.get("runtime")
     runtime = None
     if runtime_raw is not None:
+        lifecycle_raw = runtime_raw.get("lifecycle") or {}
+        if not isinstance(lifecycle_raw, dict):
+            raise ValueError("runtime.lifecycle must be an object")
         runtime = RuntimeContract(
             registry_id=str(runtime_raw["registry_id"]),
             services=_as_tuple(runtime_raw.get("services"), "runtime.services"),
@@ -147,6 +161,7 @@ def manifest_from_dict(raw: dict[str, Any]) -> ProviderManifest:
             probe_type=str(runtime_raw.get("probe_type", "http")),
             source_probe=str(runtime_raw.get("source_probe", "")),
             tools_probe=dict(runtime_raw["tools_probe"]) if runtime_raw.get("tools_probe") else None,
+            lifecycle_actions={str(key): str(value) for key, value in lifecycle_raw.items()},
         )
 
     manifest = ProviderManifest(
