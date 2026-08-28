@@ -52,28 +52,32 @@ jobs:
             control-center/sofia_provider.py \
             control-center/sofia_registry.py \
             control-center/sofia_runtime_inventory.py \
+            control-center/sofia_provider_inventory.py \
             control-center/sofia_source_health.py \
             control-center/sofia_gateway_health.py \
             control-center/sofia_gateway_client.py \
             control-center/sofia_lifecycle.py \
             control-center/sofia_health.py \
             control-center/sofia_ui.py \
-            control-center/sofia_server.py
+            control-center/sofia_server.py \
+            control-center/gateway/provider_inventory.py
 
-      - name: Validate reconciled registry and runtime inventory
+      - name: Validate reconciled registry and Gateway provider inventory
         run: |
           python - <<'PY'
           import sys
           from pathlib import Path
 
           sys.path.insert(0, "control-center")
-          from sofia_gateway_client import DEFAULT_GATEWAY_MCP_URL
+          from gateway.provider_inventory import build_gateway_provider_inventory
+          from sofia_gateway_client import DEFAULT_GATEWAY_MCP_URL, _ALLOWED_TOOLS
           from sofia_gateway_health import DEFAULT_GATEWAY_READY_URL
           from sofia_registry import load_control_center_registry
           from sofia_runtime_inventory import load_runtime_inventory
 
           assert DEFAULT_GATEWAY_READY_URL == "http://127.0.0.1:8770/ready"
           assert DEFAULT_GATEWAY_MCP_URL == "http://127.0.0.1:8770/mcp"
+          assert "gateway_provider_inventory" in _ALLOWED_TOOLS
 
           legacy = {
               "host-tools": {},
@@ -112,17 +116,35 @@ jobs:
               for domain in inventory.domains
               for component in domain.components
           )
-          assert domains["trello"].components[0].gateway_exposed is False
+
+          live = build_gateway_provider_inventory(
+              inventory,
+              {
+                  "sofia-core/gateway": lambda: {"status": "READY"},
+                  "mail/read": lambda: {"auth_ready": True, "read_ready": True},
+              },
+          )
+          assert live["authority"] == "sofia-os-gateway"
+          assert live["mode"] == "read_only"
+          assert live["summary"]["domains"] == 13
+          assert live["summary"]["healthy"] == 2
+          assert all(
+              component["lifecycle"] == {"enabled": False, "actions": []}
+              for domain in live["domains"]
+              for component in domain["components"]
+          )
 
           server = Path("control-center/sofia_server.py").read_text(encoding="utf-8")
           assert "legacy.service_action = _direct_lifecycle_disabled" in server
-          assert 'payload["runtime_inventory"]' in server
+          assert "gateway_provider_inventory_probe" in server
+          assert 'payload["runtime_inventory_status"]' in server
           assert not Path("control-center/gateway/provider_lifecycle_runner.py").exists()
           assert not Path("control-center/gateway/provider_lifecycle_actions.py").exists()
 
           print(
               f"suppressed={','.join(result.suppressed_ids)} "
               f"domains={len(domains)} "
+              f"gateway_inventory=read_only "
               f"lifecycle_policy={inventory.lifecycle_policy}"
           )
           PY
