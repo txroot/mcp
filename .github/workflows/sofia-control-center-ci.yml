@@ -52,6 +52,7 @@ jobs:
             control-center/sofia_provider.py \
             control-center/sofia_registry.py \
             control-center/sofia_source_health.py \
+            control-center/sofia_gateway_health.py \
             control-center/sofia_health.py \
             control-center/sofia_ui.py \
             control-center/sofia_server.py
@@ -63,7 +64,10 @@ jobs:
           from pathlib import Path
 
           sys.path.insert(0, "control-center")
+          from sofia_gateway_health import DEFAULT_GATEWAY_READY_URL
           from sofia_registry import load_control_center_registry
+
+          assert DEFAULT_GATEWAY_READY_URL == "http://127.0.0.1:8770/ready"
 
           result = load_control_center_registry(
               legacy_registry={},
@@ -91,7 +95,8 @@ jobs:
           assert result.registry["prestashop"]["source_probe"] == "prestashop"
           print(
               f"validated_manifests={len(result.manifests)} "
-              f"migrated={','.join(result.migrated_ids)}"
+              f"migrated={','.join(result.migrated_ids)} "
+              f"gateway_ready={DEFAULT_GATEWAY_READY_URL}"
           )
           PY
 
