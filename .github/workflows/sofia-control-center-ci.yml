@@ -60,7 +60,10 @@ jobs:
             control-center/sofia_health.py \
             control-center/sofia_ui.py \
             control-center/sofia_server.py \
-            control-center/gateway/provider_inventory.py
+            control-center/gateway/provider_inventory.py \
+            control-center/gateway/provider_inventory_resolvers.py \
+            control-center/gateway/provider_status_client.py \
+            control-center/gateway/canary/apply_overlay.py
 
       - name: Validate reconciled registry and Gateway provider inventory
         run: |
@@ -70,6 +73,13 @@ jobs:
 
           sys.path.insert(0, "control-center")
           from gateway.provider_inventory import build_gateway_provider_inventory
+          from gateway.provider_inventory_resolvers import (
+              build_gateway_tool_resolvers,
+              canonical_status_tools,
+              intentionally_unresolved_components,
+              validate_resolver_contract,
+          )
+          from gateway.provider_status_client import allowed_status_tools
           from sofia_gateway_client import DEFAULT_GATEWAY_MCP_URL, _ALLOWED_TOOLS
           from sofia_gateway_health import DEFAULT_GATEWAY_READY_URL
           from sofia_registry import load_control_center_registry
@@ -117,6 +127,21 @@ jobs:
               for component in domain.components
           )
 
+          validate_resolver_contract(inventory)
+          status_tools = canonical_status_tools()
+          assert len(status_tools) == 24
+          assert intentionally_unresolved_components() == (
+              "prestashop/product-description-write",
+              "trello/readwrite",
+          )
+          assert set(allowed_status_tools()) == set(status_tools.values())
+          resolvers = build_gateway_tool_resolvers(
+              inventory,
+              lambda tool_name, arguments: {"status": "READY", "tool": tool_name},
+          )
+          assert len(resolvers) == 24
+          assert resolvers["mail/read"]()["tool"] == "mail.read.status"
+
           live = build_gateway_provider_inventory(
               inventory,
               {
@@ -145,6 +170,8 @@ jobs:
               f"suppressed={','.join(result.suppressed_ids)} "
               f"domains={len(domains)} "
               f"gateway_inventory=read_only "
+              f"resolvers={len(resolvers)} "
+              f"unresolved={len(intentionally_unresolved_components())} "
               f"lifecycle_policy={inventory.lifecycle_policy}"
           )
           PY
