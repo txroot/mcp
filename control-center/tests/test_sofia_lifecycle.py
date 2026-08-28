@@ -8,12 +8,12 @@ APPROVAL = "pvap_" + "a" * 32
 
 def registry():
     return {
-        "memory": {
+        "example": {
             "provider_manifest": {"gateway_required": True},
             "lifecycle_actions": {
-                "start": "provider.memory.start",
-                "stop": "provider.memory.stop",
-                "restart": "provider.memory.restart",
+                "start": "provider.example.start",
+                "stop": "provider.example.stop",
+                "restart": "provider.example.restart",
             },
         },
         "legacy": {"services": ["legacy.service"]},
@@ -42,7 +42,7 @@ class FakeGateway:
             return {
                 "outcome": "PASS",
                 "approval_id": arguments["approval_id"],
-                "action": "provider.memory.restart",
+                "action": "provider.example.restart",
                 "effect_applied": True,
                 "output": [],
             }
@@ -53,7 +53,7 @@ def test_prepare_is_blocked_when_gateway_does_not_advertise_action():
     fake = FakeGateway([])
     controller = LifecycleController(registry(), "http://127.0.0.1:8770/mcp", call_tool=fake)
 
-    result = controller.prepare("memory", "restart")
+    result = controller.prepare("example", "restart")
 
     assert result["ok"] is False
     assert result["code"] == "gateway_action_unavailable"
@@ -61,10 +61,10 @@ def test_prepare_is_blocked_when_gateway_does_not_advertise_action():
 
 
 def test_prepare_and_execute_are_two_phase_and_bound_to_local_approval():
-    fake = FakeGateway(["provider.memory.restart"])
+    fake = FakeGateway(["provider.example.restart"])
     controller = LifecycleController(registry(), "http://127.0.0.1:8770/mcp", call_tool=fake)
 
-    prepared = controller.prepare("memory", "restart")
+    prepared = controller.prepare("example", "restart")
     assert prepared["ok"] is True
     assert prepared["effect_applied"] is False
     assert prepared["confirmation_required"] == "CONFIRMO"
@@ -75,14 +75,14 @@ def test_prepare_and_execute_are_two_phase_and_bound_to_local_approval():
     executed = controller.execute(APPROVAL, "CONFIRMO")
     assert executed["ok"] is True
     assert executed["effect_applied"] is True
-    assert executed["gateway_action"] == "provider.memory.restart"
+    assert executed["gateway_action"] == "provider.example.restart"
 
     with pytest.raises(PermissionError, match="not prepared"):
         controller.execute(APPROVAL, "CONFIRMO")
 
 
 def test_execute_rejects_approval_not_prepared_by_control_center():
-    fake = FakeGateway(["provider.memory.restart"])
+    fake = FakeGateway(["provider.example.restart"])
     controller = LifecycleController(registry(), "http://127.0.0.1:8770/mcp", call_tool=fake)
     other = "pvap_" + "b" * 32
 
@@ -92,7 +92,7 @@ def test_execute_rejects_approval_not_prepared_by_control_center():
 
 
 def test_local_expiry_fails_closed_before_gateway_execute():
-    fake = FakeGateway(["provider.memory.restart"])
+    fake = FakeGateway(["provider.example.restart"])
     clock = [10.0]
     controller = LifecycleController(
         registry(),
@@ -101,7 +101,7 @@ def test_local_expiry_fails_closed_before_gateway_execute():
         now=lambda: clock[0],
         local_ttl_seconds=5,
     )
-    controller.prepare("memory", "restart")
+    controller.prepare("example", "restart")
     clock[0] = 16.0
 
     with pytest.raises(PermissionError, match="expired"):
@@ -111,25 +111,25 @@ def test_local_expiry_fails_closed_before_gateway_execute():
 
 def test_manifest_identity_prevents_cross_provider_action():
     data = registry()
-    data["memory"]["lifecycle_actions"]["restart"] = "provider.prestashop.restart"
-    fake = FakeGateway(["provider.prestashop.restart"])
+    data["example"]["lifecycle_actions"]["restart"] = "provider.other.restart"
+    fake = FakeGateway(["provider.other.restart"])
     controller = LifecycleController(data, "http://127.0.0.1:8770/mcp", call_tool=fake)
 
     with pytest.raises(PermissionError, match="identity"):
-        controller.prepare("memory", "restart")
+        controller.prepare("example", "restart")
     assert fake.calls == []
 
 
 def test_status_availability_is_fail_closed_for_legacy_and_unadvertised_actions():
-    payload = {"items": [{"id": "memory"}, {"id": "legacy"}]}
+    payload = {"items": [{"id": "example"}, {"id": "legacy"}]}
     gateway = {
-        "evidence": {"provider_lifecycle_actions": ["provider.memory.restart"]}
+        "evidence": {"provider_lifecycle_actions": ["provider.example.restart"]}
     }
 
     result = apply_lifecycle_availability(payload, registry(), gateway)
 
-    memory = result["items"][0]["lifecycle"]
-    assert memory == {
+    example = result["items"][0]["lifecycle"]
+    assert example == {
         "mode": "gateway",
         "legacy_direct": False,
         "start": False,
