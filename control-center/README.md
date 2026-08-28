@@ -30,7 +30,9 @@ O Control Center apresenta estado, logs, capabilities e ações disponíveis. A 
 - health contratado em `process_health`, `provider_health`, `source_health` e `gateway_health`;
 - health materializado separadamente na API através de `health_layers`;
 - grelha visual Process / Provider / Source / Gateway no dashboard;
-- estado Gateway `unknown` enquanto não existir evidência real, sem o promover artificialmente a healthy;
+- probe real read-only do Sofia OS Gateway através de `http://127.0.0.1:8770/ready`;
+- projeção minimizada da evidência do Gateway, sem copiar o documento operacional completo;
+- estados Gateway `healthy`, `degraded` e `unhealthy` derivados de evidência real;
 - bloqueio de `direct_external_exposure=true`;
 - obrigatoriedade de `gateway_required=true`;
 - loader de manifests em `sofia_registry.py`;
@@ -41,7 +43,7 @@ O Control Center apresenta estado, logs, capabilities e ações disponíveis. A 
 - allowlist de source-health no servidor e adapter genérico em `sofia_source_health.py`;
 - fallback para o registry legado nos providers ainda não migrados;
 - CI GitHub Actions com compilação, validação de manifests, testes e `bash -n`;
-- testes unitários do contrato, registry, source-health, quatro camadas de health e UI.
+- testes unitários do contrato, registry, source-health, Gateway health, quatro camadas de health e UI.
 
 ### Ainda não concluído
 
@@ -49,7 +51,6 @@ O Control Center apresenta estado, logs, capabilities e ações disponíveis. A 
 - bearer reutilizável ainda existe no HTML legado;
 - Host/Origin/CSRF ainda não foram endurecidos;
 - Host Tools, Google Tasks e Memory ainda precisam de manifest próprio;
-- Gateway health ainda não tem probe/evidência real e aparece corretamente como `unknown` nos providers gateway-first;
 - o terminal persistente ainda não está integrado;
 - esta branch ainda não foi instalada nem ativada em produção.
 
@@ -129,6 +130,35 @@ O source-health continua a usar a verificação GA4 read-only existente. A sele�
 
 Este adapter permite remover posteriormente as exceções `if ident == ...` do servidor legado sem alterar o contrato dos manifests.
 
+## Gateway health real
+
+`sofia_gateway_health.py` consulta o endpoint read-only do Sofia OS Gateway:
+
+```text
+http://127.0.0.1:8770/ready
+```
+
+O endpoint foi validado no runtime atual e devolve a readiness canónica do Gateway. O URL pode ser substituído através de `SOFIA_GATEWAY_READY_URL` quando a topologia de deployment o exigir; o default permanece loopback.
+
+O Control Center **não replica o payload integral**. Guarda apenas:
+
+- `service_id`;
+- `status`;
+- `graph_outcome`;
+- disponibilidade do operations broker;
+- `state` e `health` do serviço `mcp_gateway`;
+- `audit_outcome`.
+
+Dados de Vault, backups, paths remotos, hashes e outros campos operacionais não entram em `gateway_access`.
+
+Classificação:
+
+- `healthy`: Gateway `READY`, serviço `running/healthy`, graph `PASS`, broker disponível e audit `PASS`;
+- `degraded`: Gateway/serviço estão operacionais, mas graph, broker ou audit não cumprem a baseline;
+- `unhealthy`: Gateway não está `READY`, o serviço não está running/healthy ou o probe não consegue obter evidência válida.
+
+O resultado é reutilizado por todos os providers com `gateway_required=true` e tem cache curta para não multiplicar probes a cada refresh visual.
+
 ## Quatro camadas de health
 
 `sofia_health.py` enriquece cada item da API com:
@@ -139,7 +169,7 @@ Este adapter permite remover posteriormente as exceções `if ident == ...` do s
     "process": {"state": "healthy", "text": "...", "required": true},
     "provider": {"state": "healthy", "text": "...", "required": true},
     "source": {"state": "healthy", "text": "...", "required": true},
-    "gateway": {"state": "unknown", "text": "...", "required": true}
+    "gateway": {"state": "healthy", "text": "...", "required": true}
   }
 }
 ```
@@ -149,7 +179,7 @@ Regras atuais:
 - **Process** deriva do estado dos serviços registados;
 - **Provider** deriva do live/ready probe local;
 - **Source** deriva do `source_access` produzido pelo probe allowlisted;
-- **Gateway** só fica healthy/unhealthy quando existir `gateway_access` real; enquanto essa evidência não estiver ligada, providers gateway-first aparecem como `unknown`;
+- **Gateway** deriva da readiness real e minimizada produzida por `sofia_gateway_health.py` para providers gateway-first;
 - providers legados também recebem as quatro chaves para uniformidade, mas camadas ainda não contratadas ficam `unknown` e `required=false`;
 - o `state` agregado legado é preservado durante a migração para evitar alterações de comportamento no summary e nas automações existentes.
 
@@ -180,7 +210,7 @@ Também instala a allowlist de source-health:
 - `google_analytics` → probe GA4 read-only existente;
 - `prestashop` → probe PrestaShop read-only existente.
 
-Depois do payload legado, o entrypoint aplica source-health e as quatro camadas de health. A UI é enriquecida por `sofia_ui.py` sem alterar o `server.py` legado, preservando rollback simples.
+Depois do payload legado, o entrypoint aplica source-health, uma única observação read-only do Gateway aos providers gateway-first e, finalmente, as quatro camadas de health. A UI é enriquecida por `sofia_ui.py` sem alterar o `server.py` legado, preservando rollback simples.
 
 O unit file da branch aponta para `sofia_server.py`. Isso **não significa que esteja instalado em produção**; o ficheiro é apenas a definição candidata para testes/deploy posterior.
 
@@ -220,6 +250,8 @@ As portas são configuração do host, não uma exigência do protocolo.
 - token de controlo em `~/.config/mcp-control-center/token`, nunca no Git;
 - ações limitadas a units registadas;
 - logs passam por redaction básica de tokens/authorization;
+- Gateway health é read-only e limitado a um documento JSON com limite de tamanho;
+- a projeção de Gateway health é minimizada antes de entrar no status payload;
 - não expor o Control Center diretamente à Internet.
 
 ### Requisitos antes de produção
@@ -229,7 +261,6 @@ As portas são configuração do host, não uma exigência do protocolo.
 - validar `Host` e `Origin`;
 - aplicar proteção CSRF às ações de mutação;
 - encaminhar ações materiais pelo Sofia OS Gateway;
-- ligar gateway health a evidência real do Gateway;
 - preservar audit trace e postflight;
 - testar rollback para o entrypoint legado.
 
@@ -237,20 +268,21 @@ As portas são configuração do host, não uma exigência do protocolo.
 
 `.github/workflows/sofia-control-center-ci.yml` valida alterações relevantes com permissões `contents: read`:
 
-- compilação dos módulos Python, incluindo health e UI;
+- compilação dos módulos Python, incluindo source-health, Gateway health, health e UI;
 - validação de todos os manifests;
 - confirmação dos providers migrados;
 - confirmação de `gateway_required=true` e `direct_external_exposure=false`;
 - confirmação dos quatro campos do health contract;
 - confirmação de source probes declarados;
-- testes unitários;
+- confirmação do endpoint Gateway default em loopback;
+- testes unitários, incluindo minimização e fail-closed do Gateway probe;
 - `bash -n` do instalador.
 
 Não existe passo de deploy no workflow.
 
 ## Instalação candidata
 
-O script desta branch instala `server.py`, `sofia_server.py`, os módulos de provider/registry/source-health/health/UI e os manifests, compila os ficheiros Python e atualiza o unit file.
+O script desta branch instala `server.py`, `sofia_server.py`, os módulos de provider/registry/source-health/Gateway-health/health/UI e os manifests, compila os ficheiros Python e atualiza o unit file.
 
 ```bash
 ./scripts/install_local.sh
@@ -278,10 +310,9 @@ O provider só deve entrar no runtime depois de validação, testes e compatibil
 
 ## Sequência seguinte
 
-1. ligar `gateway_health` a evidência real do Sofia OS Gateway;
-2. migrar um terceiro provider simples para confirmar repetibilidade;
-3. substituir Start / Stop / Restart por operações mediadas pelo Sofia OS Gateway;
-4. hardening da UI/autenticação;
-5. integrar `provider-terminal-privileged`;
-6. testes end-to-end;
-7. apenas depois preparar PR/merge/deploy.
+1. migrar um terceiro provider simples para confirmar repetibilidade;
+2. substituir Start / Stop / Restart por operações mediadas pelo Sofia OS Gateway;
+3. hardening da UI/autenticação;
+4. integrar `provider-terminal-privileged`;
+5. testes end-to-end;
+6. apenas depois preparar PR/merge/deploy.
