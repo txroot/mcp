@@ -1,0 +1,20 @@
+{
+  "provider_id": "provider:host-tools/legacy-control-center/001",
+  "name": "Host Tools (legacy Control Center entry)",
+  "version": "0.1.0",
+  "description": "Suppression manifest only. Host Tools has been superseded by the separate governed SSH provider and PC Edge provider.",
+  "gateway_required": true,
+  "direct_external_exposure": false,
+  "health": {
+    "process_health": false,
+    "provider_health": false,
+    "source_health": false,
+    "gateway_health": false
+  },
+  "capabilities": [],
+  "runtime": {
+    "registry_id": "host-tools",
+    "enabled": false,
+    "services": []
+  }
+}
