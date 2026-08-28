@@ -13,6 +13,7 @@ class RegistryLoadResult:
     registry: dict[str, dict[str, Any]]
     manifests: dict[str, ProviderManifest]
     migrated_ids: tuple[str, ...]
+    suppressed_ids: tuple[str, ...]
     sources: dict[str, str]
 
 
@@ -30,6 +31,8 @@ def _runtime_to_legacy_config(manifest: ProviderManifest, home: Path, source: Pa
     runtime = manifest.runtime
     if runtime is None:
         raise ValueError(f"{source.name}: runtime section is required for registry migration")
+    if not runtime.enabled:
+        raise ValueError(f"{source.name}: disabled runtime cannot be converted to legacy config")
 
     config: dict[str, Any] = {
         "name": manifest.name,
@@ -83,10 +86,11 @@ def load_control_center_registry(
     manifests: dict[str, ProviderManifest] = {}
     sources: dict[str, str] = {}
     migrated_ids: list[str] = []
+    suppressed_ids: list[str] = []
     runtime_ids: set[str] = set()
 
     if not providers_path.exists():
-        return RegistryLoadResult(registry, manifests, tuple(), sources)
+        return RegistryLoadResult(registry, manifests, tuple(), tuple(), sources)
 
     for path in sorted(providers_path.glob("*.provider.json")):
         manifest = load_manifest(path)
@@ -97,16 +101,26 @@ def load_control_center_registry(
 
         if manifest.runtime is None:
             continue
-        registry_id, config = _runtime_to_legacy_config(manifest, home_path, path)
+
+        runtime = manifest.runtime
+        registry_id = runtime.registry_id
         if registry_id in runtime_ids:
             raise ValueError(f"duplicate runtime.registry_id: {registry_id}")
         runtime_ids.add(registry_id)
-        registry[registry_id] = config
-        migrated_ids.append(registry_id)
+
+        if not runtime.enabled:
+            registry.pop(registry_id, None)
+            suppressed_ids.append(registry_id)
+            continue
+
+        migrated_id, config = _runtime_to_legacy_config(manifest, home_path, path)
+        registry[migrated_id] = config
+        migrated_ids.append(migrated_id)
 
     return RegistryLoadResult(
         registry=registry,
         manifests=manifests,
         migrated_ids=tuple(migrated_ids),
+        suppressed_ids=tuple(suppressed_ids),
         sources=sources,
     )
