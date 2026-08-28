@@ -15,10 +15,12 @@ from sofia_gateway_health import (
 from sofia_health import apply_health_layers
 from sofia_lifecycle import LifecycleController, apply_lifecycle_availability
 from sofia_registry import load_control_center_registry
+from sofia_runtime_inventory import load_runtime_inventory
 from sofia_source_health import apply_source_health
 from sofia_ui import upgrade_control_center_html
 
 PROVIDERS_DIR = Path(__file__).with_name("providers")
+RUNTIME_INVENTORY_PATH = Path(__file__).with_name("runtime") / "sofia-os-canonical.json"
 GATEWAY_READY_URL = os.environ.get("SOFIA_GATEWAY_READY_URL", DEFAULT_GATEWAY_READY_URL).strip()
 GATEWAY_MCP_URL = os.environ.get("SOFIA_GATEWAY_MCP_URL", DEFAULT_GATEWAY_MCP_URL).strip()
 REGISTRY_LOAD = load_control_center_registry(
@@ -26,6 +28,7 @@ REGISTRY_LOAD = load_control_center_registry(
     providers_dir=PROVIDERS_DIR,
     home=legacy.HOME,
 )
+RUNTIME_INVENTORY = load_runtime_inventory(RUNTIME_INVENTORY_PATH)
 legacy.MCP_REGISTRY = REGISTRY_LOAD.registry
 legacy.SAFE_UNITS = {
     unit
@@ -34,7 +37,9 @@ legacy.SAFE_UNITS = {
 }
 legacy.PROVIDER_MANIFESTS = REGISTRY_LOAD.manifests
 legacy.PROVIDER_MIGRATED_IDS = REGISTRY_LOAD.migrated_ids
+legacy.PROVIDER_SUPPRESSED_IDS = REGISTRY_LOAD.suppressed_ids
 legacy.PROVIDER_MANIFEST_SOURCES = REGISTRY_LOAD.sources
+legacy.RUNTIME_INVENTORY = RUNTIME_INVENTORY
 
 _SOURCE_PROBES = {
     "google_analytics": legacy.analytics_data_probe,
@@ -62,10 +67,16 @@ def _manifest_status_payload():
         registry=legacy.MCP_REGISTRY,
         gateway_evidence=gateway_evidence,
     )
-    return apply_health_layers(
+    payload = apply_health_layers(
         payload=payload,
         registry=legacy.MCP_REGISTRY,
     )
+    payload["runtime_inventory"] = RUNTIME_INVENTORY.to_dict()
+    payload["legacy_registry_reconciliation"] = {
+        "migrated_ids": list(REGISTRY_LOAD.migrated_ids),
+        "suppressed_ids": list(REGISTRY_LOAD.suppressed_ids),
+    }
+    return payload
 
 
 def _direct_lifecycle_disabled(_ident: str, _action: str) -> tuple[bool, str]:
@@ -130,10 +141,13 @@ legacy.HTML = upgrade_control_center_html(legacy.HTML)
 
 if __name__ == "__main__":
     migrated = ",".join(REGISTRY_LOAD.migrated_ids) or "none"
+    suppressed = ",".join(REGISTRY_LOAD.suppressed_ids) or "none"
     print(
         f"Sofia Control Center listening on http://{legacy.HOST}:{legacy.PORT} "
-        f"manifest_migrated={migrated} gateway_ready={GATEWAY_READY_URL} "
-        f"gateway_mcp={GATEWAY_MCP_URL} lifecycle=gateway-only",
+        f"manifest_migrated={migrated} manifest_suppressed={suppressed} "
+        f"runtime_inventory={RUNTIME_INVENTORY.inventory_id} "
+        f"gateway_ready={GATEWAY_READY_URL} gateway_mcp={GATEWAY_MCP_URL} "
+        f"lifecycle=gateway-only",
         flush=True,
     )
     legacy.ThreadingHTTPServer((legacy.HOST, legacy.PORT), SofiaHandler).serve_forever()
