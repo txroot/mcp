@@ -4,11 +4,34 @@ import json
 import time
 import urllib.request
 from typing import Any, Callable
+from urllib.parse import urlparse
 
 
 DEFAULT_GATEWAY_READY_URL = "http://127.0.0.1:8770/ready"
 _MAX_BODY_BYTES = 64 * 1024
+_ALLOWED_HOSTS = {"127.0.0.1", "localhost", "::1"}
 _CACHE: dict[str, Any] = {"ts": 0.0, "url": "", "result": None}
+
+
+def validate_gateway_ready_url(url: str) -> str:
+    """Restrict Gateway health reads to a loopback HTTP /ready endpoint."""
+    parsed = urlparse(url)
+    try:
+        port = parsed.port
+    except ValueError as exc:
+        raise ValueError("invalid Gateway readiness port") from exc
+
+    if parsed.scheme != "http":
+        raise ValueError("Gateway readiness scheme must be http")
+    if parsed.hostname not in _ALLOWED_HOSTS:
+        raise ValueError("Gateway readiness host must be loopback")
+    if port is None or not 1 <= port <= 65535:
+        raise ValueError("Gateway readiness URL must include a valid port")
+    if parsed.path != "/ready" or parsed.params or parsed.query or parsed.fragment:
+        raise ValueError("Gateway readiness path must be exactly /ready")
+    if parsed.username is not None or parsed.password is not None:
+        raise ValueError("Gateway readiness URL cannot contain credentials")
+    return url
 
 
 def _minimal_evidence(payload: dict[str, Any]) -> dict[str, Any]:
@@ -60,11 +83,12 @@ def probe_gateway_ready(
 
     The raw readiness document contains broader operational detail. This adapter
     intentionally keeps only the fields required to establish gateway health for
-    the Control Center.
+    the Control Center. Network access is constrained to loopback `/ready`.
     """
     try:
+        validated_url = validate_gateway_ready_url(url)
         request = urllib.request.Request(
-            url,
+            validated_url,
             headers={"User-Agent": "sofia-control-center/1"},
             method="GET",
         )
