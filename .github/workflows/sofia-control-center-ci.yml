@@ -63,6 +63,7 @@ jobs:
             control-center/gateway/provider_inventory.py \
             control-center/gateway/provider_inventory_resolvers.py \
             control-center/gateway/provider_status_client.py \
+            control-center/gateway/provider_inventory_smoke.py \
             control-center/gateway/canary/apply_overlay.py
 
       - name: Validate reconciled registry and Gateway provider inventory
@@ -182,5 +183,7 @@ jobs:
       - name: Validate JSON inventory
         run: python -m json.tool control-center/runtime/sofia-os-canonical.json >/dev/null
 
-      - name: Validate installer shell syntax
-        run: bash -n control-center/scripts/install_local.sh
+      - name: Validate shell syntax
+        run: |
+          bash -n control-center/scripts/install_local.sh
+          bash -n control-center/gateway/canary/build_smoke_canary.sh
