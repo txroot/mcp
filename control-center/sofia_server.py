@@ -14,6 +14,7 @@ from sofia_gateway_health import (
 )
 from sofia_health import apply_health_layers
 from sofia_lifecycle import LifecycleController, apply_lifecycle_availability
+from sofia_provider_inventory import gateway_provider_inventory_probe
 from sofia_registry import load_control_center_registry
 from sofia_runtime_inventory import load_runtime_inventory
 from sofia_source_health import apply_source_health
@@ -71,7 +72,16 @@ def _manifest_status_payload():
         payload=payload,
         registry=legacy.MCP_REGISTRY,
     )
-    payload["runtime_inventory"] = RUNTIME_INVENTORY.to_dict()
+    inventory_view = gateway_provider_inventory_probe(
+        GATEWAY_MCP_URL,
+        RUNTIME_INVENTORY,
+    )
+    payload["runtime_inventory"] = inventory_view["inventory"]
+    payload["runtime_inventory_status"] = {
+        "source": inventory_view["source"],
+        "live": inventory_view["live"],
+        "error": inventory_view["error"],
+    }
     payload["legacy_registry_reconciliation"] = {
         "migrated_ids": list(REGISTRY_LOAD.migrated_ids),
         "suppressed_ids": list(REGISTRY_LOAD.suppressed_ids),
@@ -147,7 +157,7 @@ if __name__ == "__main__":
         f"manifest_migrated={migrated} manifest_suppressed={suppressed} "
         f"runtime_inventory={RUNTIME_INVENTORY.inventory_id} "
         f"gateway_ready={GATEWAY_READY_URL} gateway_mcp={GATEWAY_MCP_URL} "
-        f"lifecycle=gateway-only",
+        f"provider_inventory=gateway-preferred lifecycle=gateway-only",
         flush=True,
     )
     legacy.ThreadingHTTPServer((legacy.HOST, legacy.PORT), SofiaHandler).serve_forever()
