@@ -1,0 +1,115 @@
+{
+  "inventory_id": "sofia-os-runtime/eletrix-server/2026-08-28",
+  "host": "eletrix-server",
+  "observed_on": "2026-08-28",
+  "authority": "runtime-reconciled",
+  "lifecycle_policy": "disabled_until_gateway_provider_inventory",
+  "domains": [
+    {
+      "domain_id": "sofia-core",
+      "name": "Sofia OS Core",
+      "components": [
+        {"component_id": "gateway", "role": "gateway", "kind": "docker", "target": "pedrovault-mcp-production", "status_tool": "gateway_health", "gateway_exposed": true, "lifecycle_enabled": false},
+        {"component_id": "operations-broker", "role": "operations_broker", "kind": "systemd", "target": "pedrovault-ops-broker.service", "status_tool": "gateway_vm_status", "gateway_exposed": true, "lifecycle_enabled": false},
+        {"component_id": "secure-tunnel", "role": "secure_tunnel", "kind": "systemd", "target": "pedrovault-mcp-tunnel.service", "status_tool": "gateway_vm_status", "gateway_exposed": true, "lifecycle_enabled": false}
+      ]
+    },
+    {
+      "domain_id": "ssh",
+      "name": "Privileged SSH Provider",
+      "components": [
+        {"component_id": "ssh-provider", "role": "privileged_provider", "kind": "docker", "target": "sofia-ssh-mcp", "status_tool": "shell_status", "gateway_exposed": true, "lifecycle_enabled": false}
+      ]
+    },
+    {
+      "domain_id": "pc-edge",
+      "name": "PC Edge",
+      "components": [
+        {"component_id": "pc-edge-provider", "role": "controlled_pc_provider", "kind": "docker", "target": "pedrovault-pc-edge-provider", "status_tool": "pc.health", "gateway_exposed": true, "lifecycle_enabled": false}
+      ]
+    },
+    {
+      "domain_id": "prestashop",
+      "name": "PrestaShop",
+      "components": [
+        {"component_id": "store-readonly", "role": "read", "kind": "docker", "target": "pedrovault-prestashop-provider-production-r55", "status_tool": "prestashop.health", "gateway_exposed": true, "lifecycle_enabled": false},
+        {"component_id": "sofiabridge-readonly", "role": "read", "kind": "systemd", "target": "pedrovault-prestashop-sofiabridge-readonly-provider.service", "status_tool": "prestashop.bridge.status", "gateway_exposed": true, "lifecycle_enabled": false},
+        {"component_id": "catalog-status-write", "role": "controlled_write", "kind": "systemd", "target": "pedrovault-prestashop-catalog-status-provider.service", "status_tool": "prestashop.catalog_status.status", "gateway_exposed": true, "lifecycle_enabled": false},
+        {"component_id": "category-writer", "role": "controlled_write", "kind": "docker", "target": "pedrovault-prestashop-category-writer-r82", "status_tool": "prestashop.category_writer.status", "gateway_exposed": true, "lifecycle_enabled": false},
+        {"component_id": "seo-write", "role": "controlled_write", "kind": "systemd", "target": "pedrovault-prestashop-seo-write-provider.service", "status_tool": "prestashop.seo.write.status", "gateway_exposed": true, "lifecycle_enabled": false},
+        {"component_id": "product-description-write", "role": "controlled_write", "kind": "systemd", "target": "pedrovault-prestashop-product-description-write-provider.service", "status_tool": null, "gateway_exposed": true, "lifecycle_enabled": false}
+      ]
+    },
+    {
+      "domain_id": "mail",
+      "name": "Gmail",
+      "components": [
+        {"component_id": "read", "role": "read", "kind": "systemd", "target": "pedrovault-gmail-readonly-provider.service", "status_tool": "mail.read.status", "gateway_exposed": true, "lifecycle_enabled": false},
+        {"component_id": "modify", "role": "controlled_write", "kind": "systemd", "target": "pedrovault-gmail-modify-provider.service", "status_tool": "mail.modify.status", "gateway_exposed": true, "lifecycle_enabled": false},
+        {"component_id": "draft", "role": "controlled_write", "kind": "systemd", "target": "pedrovault-gmail-compose-provider.service", "status_tool": "mail.draft.status", "gateway_exposed": true, "lifecycle_enabled": false},
+        {"component_id": "send", "role": "controlled_write", "kind": "systemd", "target": "pedrovault-gmail-send-provider.service", "status_tool": "mail.send.status", "gateway_exposed": true, "lifecycle_enabled": false}
+      ]
+    },
+    {
+      "domain_id": "calendar",
+      "name": "Google Calendar",
+      "components": [
+        {"component_id": "read", "role": "read", "kind": "systemd", "target": "pedrovault-calendar-readonly-provider.service", "status_tool": "calendar.read.status", "gateway_exposed": true, "lifecycle_enabled": false},
+        {"component_id": "write", "role": "controlled_write", "kind": "systemd", "target": "pedrovault-calendar-write-provider.service", "status_tool": "calendar.write.status", "gateway_exposed": true, "lifecycle_enabled": false}
+      ]
+    },
+    {
+      "domain_id": "tasks",
+      "name": "Google Tasks",
+      "components": [
+        {"component_id": "read", "role": "read", "kind": "systemd", "target": "pedrovault-tasks-readonly-provider.service", "status_tool": "gateway_external_services_status", "gateway_exposed": true, "lifecycle_enabled": false},
+        {"component_id": "write", "role": "controlled_write", "kind": "systemd", "target": "pedrovault-tasks-write-provider.service", "status_tool": "gateway_tasks_write_status", "gateway_exposed": true, "lifecycle_enabled": false}
+      ]
+    },
+    {
+      "domain_id": "sheets",
+      "name": "Google Sheets",
+      "components": [
+        {"component_id": "read", "role": "read", "kind": "systemd", "target": "pedrovault-sheets-readonly-provider.service", "status_tool": "sheets.read.status", "gateway_exposed": true, "lifecycle_enabled": false},
+        {"component_id": "write", "role": "controlled_write", "kind": "systemd", "target": "pedrovault-sheets-write-provider.service", "status_tool": "sheets.write.status", "gateway_exposed": true, "lifecycle_enabled": false}
+      ]
+    },
+    {
+      "domain_id": "contacts",
+      "name": "Google Contacts",
+      "components": [
+        {"component_id": "read", "role": "read", "kind": "systemd", "target": "pedrovault-contacts-readonly-provider.service", "status_tool": "contacts.read.status", "gateway_exposed": true, "lifecycle_enabled": false}
+      ]
+    },
+    {
+      "domain_id": "drive",
+      "name": "Google Drive",
+      "components": [
+        {"component_id": "read", "role": "read", "kind": "systemd", "target": "pedrovault-drive-readonly-provider.service", "status_tool": "drive.read.status", "gateway_exposed": true, "lifecycle_enabled": false}
+      ]
+    },
+    {
+      "domain_id": "location",
+      "name": "Google Places",
+      "components": [
+        {"component_id": "read", "role": "read", "kind": "systemd", "target": "pedrovault-location-places-provider.service", "status_tool": "location.read.status", "gateway_exposed": true, "lifecycle_enabled": false}
+      ]
+    },
+    {
+      "domain_id": "elektro3",
+      "name": "Elektro3",
+      "components": [
+        {"component_id": "catalog-read", "role": "read", "kind": "systemd", "target": "pedrovault-elektro3-provider.service", "status_tool": "elektro3.read.status", "gateway_exposed": true, "lifecycle_enabled": false}
+      ]
+    },
+    {
+      "domain_id": "trello",
+      "name": "Trello",
+      "components": [
+        {"component_id": "readwrite", "role": "controlled_readwrite", "kind": "systemd", "target": "pedrovault-trello-readwrite-provider.service", "status_tool": null, "gateway_exposed": false, "lifecycle_enabled": false, "note": "Provider readiness is healthy on Unix socket, but Trello tools are not yet exposed by the Gateway tool inventory."}
+      ]
+    }
+  ],
+  "excluded_legacy_registry_ids": ["host-tools", "google-tasks", "memory", "google-analytics", "prestashop"],
+  "excluded_noncanonical_runtime_classes": ["green", "canary", "candidate-history"]
+}
