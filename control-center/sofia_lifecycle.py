@@ -13,6 +13,30 @@ _ALLOWED_ACTIONS = {"start", "stop", "restart"}
 _APPROVAL_RE = re.compile(r"pvap_[a-f0-9]{32}")
 
 
+def apply_lifecycle_availability(
+    payload: dict[str, Any],
+    registry: dict[str, dict[str, Any]],
+    gateway_evidence: dict[str, Any],
+) -> dict[str, Any]:
+    """Expose lifecycle buttons only when both manifest and live Gateway allow them."""
+    evidence = gateway_evidence.get("evidence") or {}
+    allowed = set(evidence.get("provider_lifecycle_actions") or [])
+    for item in payload.get("items", []):
+        provider_id = str(item.get("id") or "")
+        config = registry.get(provider_id, {})
+        manifest = config.get("provider_manifest") or {}
+        mapping = config.get("lifecycle_actions") or {}
+        mediated = manifest.get("gateway_required") is True and bool(mapping)
+        item["lifecycle"] = {
+            "mode": "gateway" if mediated else "unavailable",
+            "legacy_direct": False,
+            "start": mediated and mapping.get("start") in allowed,
+            "stop": mediated and mapping.get("stop") in allowed,
+            "restart": mediated and mapping.get("restart") in allowed,
+        }
+    return payload
+
+
 @dataclass(frozen=True)
 class PendingLifecycle:
     approval_id: str
@@ -23,12 +47,7 @@ class PendingLifecycle:
 
 
 class LifecycleController:
-    """Two-phase provider lifecycle controller backed only by Sofia OS Gateway tools.
-
-    There is deliberately no direct-systemd fallback. A provider lifecycle action is
-    available only if its manifest declares a symbolic Gateway action and the live
-    Gateway advertises that exact action in operations_broker.allowed_actions.
-    """
+    """Two-phase provider lifecycle controller backed only by Sofia OS Gateway tools."""
 
     def __init__(
         self,
@@ -92,7 +111,6 @@ class LifecycleController:
                 "gateway_action": gateway_action,
                 "message": "Gateway does not currently advertise this provider lifecycle action.",
             }
-
         prepared = self.call_tool(
             self.gateway_url,
             "gateway_prepare_operation",
@@ -103,10 +121,8 @@ class LifecycleController:
             raise RuntimeError("Gateway returned an invalid approval id")
         if prepared.get("effect_applied") is not False:
             raise RuntimeError("Gateway prepare unexpectedly reported an applied effect")
-        confirmation_required = str(prepared.get("confirmation_required") or "")
-        if confirmation_required != "CONFIRMO":
+        if str(prepared.get("confirmation_required") or "") != "CONFIRMO":
             raise RuntimeError("Gateway returned an unexpected confirmation contract")
-
         pending = PendingLifecycle(
             approval_id=approval_id,
             provider_id=provider_id,
@@ -142,7 +158,6 @@ class LifecycleController:
             with self._lock:
                 self._pending.pop(approval_id, None)
             raise PermissionError("Lifecycle approval expired locally; prepare again")
-
         executed = self.call_tool(
             self.gateway_url,
             "gateway_execute_operation",
