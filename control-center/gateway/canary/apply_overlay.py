@@ -69,6 +69,10 @@ def apply_overlay(repo_root: Path, runtime_root: Path) -> None:
             source_gateway / "provider_status_client.py",
             destination_gateway / "provider_status_client.py",
         ),
+        (
+            source_gateway / "provider_inventory_smoke.py",
+            destination_gateway / "provider_inventory_smoke.py",
+        ),
         (source_control / "sofia_runtime_inventory.py", runtime_root / "sofia_runtime_inventory.py"),
         (
             source_control / "runtime/sofia-os-canonical.json",
