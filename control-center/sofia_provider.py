@@ -42,6 +42,7 @@ class HealthContract:
 class RuntimeContract:
     registry_id: str
     services: tuple[str, ...]
+    enabled: bool = True
     profile: str = ""
     mcp: str = ""
     health_endpoint: str = ""
@@ -57,14 +58,26 @@ class RuntimeContract:
         errors: list[str] = []
         if not self.registry_id.strip():
             errors.append("runtime.registry_id is required")
-        if not self.services:
-            errors.append("runtime.services must contain at least one service")
+
+        if self.enabled:
+            if not self.services:
+                errors.append("runtime.services must contain at least one service when enabled")
+            if self.probe_type not in {"http", "tcp"}:
+                errors.append("runtime.probe_type must be 'http' or 'tcp'")
+        else:
+            if self.services:
+                errors.append("disabled runtime.services must be empty")
+            if self.source_probe:
+                errors.append("disabled runtime.source_probe must be empty")
+            if self.tools_probe:
+                errors.append("disabled runtime.tools_probe must be omitted")
+            if self.lifecycle_actions:
+                errors.append("disabled runtime.lifecycle must be empty")
+
         if any(not service.strip() for service in self.services):
             errors.append("runtime.services cannot contain empty service names")
         if len(set(self.services)) != len(self.services):
             errors.append("runtime.services cannot contain duplicates")
-        if self.probe_type not in {"http", "tcp"}:
-            errors.append("runtime.probe_type must be 'http' or 'tcp'")
         if self.source_probe and not re.fullmatch(r"[a-z0-9_]+", self.source_probe):
             errors.append("runtime.source_probe must be a symbolic lowercase identifier")
 
@@ -152,6 +165,7 @@ def manifest_from_dict(raw: dict[str, Any]) -> ProviderManifest:
         runtime = RuntimeContract(
             registry_id=str(runtime_raw["registry_id"]),
             services=_as_tuple(runtime_raw.get("services"), "runtime.services"),
+            enabled=bool(runtime_raw.get("enabled", True)),
             profile=str(runtime_raw.get("profile", "")),
             mcp=str(runtime_raw.get("mcp", "")),
             health_endpoint=str(runtime_raw.get("health", "")),
