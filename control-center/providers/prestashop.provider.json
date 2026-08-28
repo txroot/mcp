@@ -1,48 +1,20 @@
 {
-  "provider_id": "provider:prestashop/001",
-  "name": "PrestaShop",
-  "version": "0.2.0",
-  "description": "Eletrix operational PrestaShop provider with Gateway-mediated lifecycle.",
+  "provider_id": "provider:prestashop/legacy-control-center/001",
+  "name": "PrestaShop (legacy single-MCP entry)",
+  "version": "0.3.0",
+  "description": "Suppression manifest only. Canonical PrestaShop is now a Sofia OS domain composed of multiple providers behind the Gateway.",
   "gateway_required": true,
   "direct_external_exposure": false,
   "health": {
-    "process_health": true,
-    "provider_health": true,
-    "source_health": true,
-    "gateway_health": true
+    "process_health": false,
+    "provider_health": false,
+    "source_health": false,
+    "gateway_health": false
   },
-  "capabilities": [
-    {"name": "prestashop.health", "enforcement": "FULL", "risks": [], "requires_approval": false},
-    {"name": "prestashop.orders.read", "enforcement": "FULL", "risks": ["customer_data"], "requires_approval": false},
-    {"name": "prestashop.catalog.read", "enforcement": "FULL", "risks": [], "requires_approval": false},
-    {"name": "prestashop.catalog.audit", "enforcement": "FULL", "risks": [], "requires_approval": false},
-    {"name": "prestashop.stock.read", "enforcement": "FULL", "risks": [], "requires_approval": false},
-    {"name": "prestashop.abandoned_carts.read", "enforcement": "FULL", "risks": ["customer_data"], "requires_approval": false},
-    {"name": "prestashop.duplicates.audit", "enforcement": "FULL", "risks": [], "requires_approval": false},
-    {"name": "prestashop.lifecycle.start", "enforcement": "CONTROLLED", "risks": ["service_availability"], "requires_approval": true},
-    {"name": "prestashop.lifecycle.stop", "enforcement": "CONTROLLED", "risks": ["service_availability"], "requires_approval": true},
-    {"name": "prestashop.lifecycle.restart", "enforcement": "CONTROLLED", "risks": ["service_availability"], "requires_approval": true}
-  ],
+  "capabilities": [],
   "runtime": {
     "registry_id": "prestashop",
-    "services": ["mcp-prestashop.service", "mcp-prestashop-tunnel.service"],
-    "profile": "prestashop",
-    "mcp": "http://127.0.0.1:8769/mcp",
-    "health": "http://127.0.0.1:18105",
-    "admin": "http://127.0.0.1:18105/ui",
-    "kind": "HTTP + Tunnel",
-    "tunnel_configured": true,
-    "probe_type": "http",
-    "source_probe": "prestashop",
-    "lifecycle": {
-      "start": "provider.prestashop.start",
-      "stop": "provider.prestashop.stop",
-      "restart": "provider.prestashop.restart"
-    },
-    "tools_probe": {
-      "type": "http",
-      "python": "${HOME}/chatgpt-workspace/mcp/prestashop/.venv/bin/python",
-      "url": "http://127.0.0.1:8769/mcp"
-    }
+    "enabled": false,
+    "services": []
   }
 }
