@@ -101,6 +101,39 @@ def test_legacy_provider_still_gets_four_layers_without_claiming_gateway_health(
     assert layers["gateway"]["state"] == "unknown"
 
 
+def test_manifest_memory_does_not_require_separate_source_probe():
+    current = item(
+        id="memory",
+        gateway_access={"ok": True, "state": "healthy", "text": "Gateway READY"},
+    )
+    current.pop("source_access")
+    config = {
+        "source_probe": "",
+        "provider_manifest": {
+            "gateway_required": True,
+            "health_contract": {
+                "process_health": True,
+                "provider_health": True,
+                "source_health": False,
+                "gateway_health": True,
+            },
+        },
+    }
+
+    layers = apply(current, config)["items"][0]["health_layers"]
+
+    assert layers["source"] == {
+        "state": "unknown",
+        "text": "Source health not required by contract",
+        "required": False,
+    }
+    assert layers["gateway"] == {
+        "state": "healthy",
+        "text": "Gateway READY",
+        "required": True,
+    }
+
+
 def test_summary_contains_counts_per_health_layer():
     result = apply(item())
     counts = result["summary"]["health_layers"]
