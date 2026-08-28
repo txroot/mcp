@@ -77,13 +77,13 @@ jobs:
 
           assert "provider:prestashop/001" in result.manifests
           assert "provider:google-analytics/001" in result.manifests
-          assert result.migrated_ids == ("google-analytics", "prestashop")
+          assert "provider:memory/001" in result.manifests
+          assert result.migrated_ids == ("google-analytics", "memory", "prestashop")
 
           for registry_id in result.migrated_ids:
               metadata = result.registry[registry_id]["provider_manifest"]
               assert metadata["gateway_required"] is True
               assert metadata["direct_external_exposure"] is False
-              assert result.registry[registry_id]["source_probe"]
               assert set(metadata["health_contract"]) == {
                   "process_health",
                   "provider_health",
@@ -93,6 +93,8 @@ jobs:
 
           assert result.registry["google-analytics"]["source_probe"] == "google_analytics"
           assert result.registry["prestashop"]["source_probe"] == "prestashop"
+          assert result.registry["memory"]["source_probe"] == ""
+          assert result.registry["memory"]["provider_manifest"]["health_contract"]["source_health"] is False
           print(
               f"validated_manifests={len(result.manifests)} "
               f"migrated={','.join(result.migrated_ids)} "
