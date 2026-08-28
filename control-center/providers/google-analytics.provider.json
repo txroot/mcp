@@ -1,44 +1,20 @@
 {
-  "provider_id": "provider:google-analytics/001",
-  "name": "Google Analytics",
-  "version": "0.2.0",
-  "description": "Eletrix GA4 read-only provider with Gateway-mediated lifecycle.",
+  "provider_id": "provider:google-analytics/legacy-control-center/001",
+  "name": "Google Analytics (legacy Control Center entry)",
+  "version": "0.3.0",
+  "description": "Suppression manifest only. No canonical Google Analytics runtime is currently deployed in Sofia OS on eletrix-server.",
   "gateway_required": true,
   "direct_external_exposure": false,
   "health": {
-    "process_health": true,
-    "provider_health": true,
-    "source_health": true,
-    "gateway_health": true
+    "process_health": false,
+    "provider_health": false,
+    "source_health": false,
+    "gateway_health": false
   },
-  "capabilities": [
-    {"name": "google_analytics.health", "enforcement": "FULL", "risks": [], "requires_approval": false},
-    {"name": "google_analytics.report.read", "enforcement": "FULL", "risks": ["analytics_data"], "requires_approval": false},
-    {"name": "google_analytics.metadata.read", "enforcement": "FULL", "risks": [], "requires_approval": false},
-    {"name": "google_analytics.lifecycle.start", "enforcement": "CONTROLLED", "risks": ["service_availability"], "requires_approval": true},
-    {"name": "google_analytics.lifecycle.stop", "enforcement": "CONTROLLED", "risks": ["service_availability"], "requires_approval": true},
-    {"name": "google_analytics.lifecycle.restart", "enforcement": "CONTROLLED", "risks": ["service_availability"], "requires_approval": true}
-  ],
+  "capabilities": [],
   "runtime": {
     "registry_id": "google-analytics",
-    "services": ["mcp-google-analytics.service", "mcp-google-analytics-tunnel.service"],
-    "profile": "google-analytics",
-    "mcp": "http://127.0.0.1:8767/mcp",
-    "health": "http://127.0.0.1:18104",
-    "admin": "http://127.0.0.1:18104/ui",
-    "kind": "HTTP + Tunnel",
-    "tunnel_configured": true,
-    "probe_type": "http",
-    "source_probe": "google_analytics",
-    "lifecycle": {
-      "start": "provider.google-analytics.start",
-      "stop": "provider.google-analytics.stop",
-      "restart": "provider.google-analytics.restart"
-    },
-    "tools_probe": {
-      "type": "http",
-      "python": "${HOME}/chatgpt-workspace/google-analytics-mcp/.venv/bin/python",
-      "url": "http://127.0.0.1:8767/mcp"
-    }
+    "enabled": false,
+    "services": []
   }
 }
