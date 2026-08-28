@@ -1,6 +1,10 @@
 import json
 
-from sofia_gateway_health import apply_gateway_evidence, probe_gateway_ready
+from sofia_gateway_health import (
+    apply_gateway_evidence,
+    probe_gateway_ready,
+    validate_gateway_ready_url,
+)
 from sofia_health import apply_health_layers
 
 
@@ -101,6 +105,26 @@ def test_probe_failure_fails_closed_without_exception_details():
         "text": "Gateway readiness probe failed: ConnectionError",
         "evidence": {},
     }
+
+
+def test_gateway_ready_url_is_restricted_to_loopback_ready_path():
+    assert validate_gateway_ready_url("http://127.0.0.1:8770/ready") == "http://127.0.0.1:8770/ready"
+    assert validate_gateway_ready_url("http://localhost:8770/ready") == "http://localhost:8770/ready"
+
+    attempted = False
+
+    def must_not_run(_request, timeout=0):
+        nonlocal attempted
+        attempted = True
+        raise AssertionError("network opener must not run")
+
+    result = probe_gateway_ready(
+        "http://example.com:8770/ready",
+        opener=must_not_run,
+    )
+    assert attempted is False
+    assert result["state"] == "unhealthy"
+    assert result["text"] == "Gateway readiness probe failed: ValueError"
 
 
 def test_gateway_evidence_only_attaches_to_gateway_required_provider():
