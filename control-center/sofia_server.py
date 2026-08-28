@@ -4,8 +4,10 @@ from __future__ import annotations
 from pathlib import Path
 
 import server as legacy
+from sofia_health import apply_health_layers
 from sofia_registry import load_control_center_registry
 from sofia_source_health import apply_source_health
+from sofia_ui import upgrade_control_center_html
 
 PROVIDERS_DIR = Path(__file__).with_name("providers")
 REGISTRY_LOAD = load_control_center_registry(
@@ -32,14 +34,19 @@ _LEGACY_STATUS_PAYLOAD = legacy.status_payload
 
 def _manifest_status_payload():
     payload = _LEGACY_STATUS_PAYLOAD()
-    return apply_source_health(
+    payload = apply_source_health(
         payload=payload,
         registry=legacy.MCP_REGISTRY,
         probes=_SOURCE_PROBES,
     )
+    return apply_health_layers(
+        payload=payload,
+        registry=legacy.MCP_REGISTRY,
+    )
 
 
 legacy.status_payload = _manifest_status_payload
+legacy.HTML = upgrade_control_center_html(legacy.HTML)
 
 if __name__ == "__main__":
     migrated = ",".join(REGISTRY_LOAD.migrated_ids) or "none"
