@@ -11,6 +11,7 @@ _ALLOWED_HOSTS = {"127.0.0.1", "localhost", "::1"}
 _MAX_RESPONSE_BYTES = 128 * 1024
 _ALLOWED_TOOLS = {
     "gateway_vm_status",
+    "gateway_provider_inventory",
     "gateway_prepare_operation",
     "gateway_execute_operation",
 }
