@@ -1,0 +1,20 @@
+{
+  "provider_id": "provider:google-tasks/legacy-control-center/001",
+  "name": "Google Tasks (legacy Control Center entry)",
+  "version": "0.1.0",
+  "description": "Suppression manifest only. Canonical Google Tasks is split into read-only and controlled-write Unix-socket providers behind Sofia OS Gateway.",
+  "gateway_required": true,
+  "direct_external_exposure": false,
+  "health": {
+    "process_health": false,
+    "provider_health": false,
+    "source_health": false,
+    "gateway_health": false
+  },
+  "capabilities": [],
+  "runtime": {
+    "registry_id": "google-tasks",
+    "enabled": false,
+    "services": []
+  }
+}
