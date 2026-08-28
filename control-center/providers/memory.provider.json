@@ -1,0 +1,53 @@
+{
+  "provider_id": "provider:memory/001",
+  "name": "Memory",
+  "version": "0.1.0",
+  "description": "Persistent semantic memory provider for ChatGPT.",
+  "gateway_required": true,
+  "direct_external_exposure": false,
+  "health": {
+    "process_health": true,
+    "provider_health": true,
+    "source_health": false,
+    "gateway_health": true
+  },
+  "capabilities": [
+    {
+      "name": "memory.health",
+      "enforcement": "FULL",
+      "risks": [],
+      "requires_approval": false
+    },
+    {
+      "name": "memory.search.read",
+      "enforcement": "FULL",
+      "risks": ["personal_context"],
+      "requires_approval": false
+    },
+    {
+      "name": "memory.stats.read",
+      "enforcement": "FULL",
+      "risks": [],
+      "requires_approval": false
+    }
+  ],
+  "runtime": {
+    "registry_id": "memory",
+    "services": [
+      "mcp-memory.service",
+      "mcp-memory-tunnel.service"
+    ],
+    "profile": "memory",
+    "mcp": "http://127.0.0.1:8765/mcp",
+    "health": "http://127.0.0.1:18103",
+    "admin": "http://127.0.0.1:18103/ui",
+    "kind": "HTTP + Tunnel",
+    "tunnel_configured": true,
+    "probe_type": "http",
+    "tools_probe": {
+      "type": "http",
+      "python": "${HOME}/mcp-memory/.venv/bin/python",
+      "url": "http://127.0.0.1:8765/mcp"
+    }
+  }
+}
