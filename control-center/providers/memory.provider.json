@@ -1,8 +1,8 @@
 {
   "provider_id": "provider:memory/001",
   "name": "Memory",
-  "version": "0.1.0",
-  "description": "Persistent semantic memory provider for ChatGPT.",
+  "version": "0.2.0",
+  "description": "Persistent semantic memory provider for ChatGPT with Gateway-mediated lifecycle.",
   "gateway_required": true,
   "direct_external_exposure": false,
   "health": {
@@ -12,31 +12,16 @@
     "gateway_health": true
   },
   "capabilities": [
-    {
-      "name": "memory.health",
-      "enforcement": "FULL",
-      "risks": [],
-      "requires_approval": false
-    },
-    {
-      "name": "memory.search.read",
-      "enforcement": "FULL",
-      "risks": ["personal_context"],
-      "requires_approval": false
-    },
-    {
-      "name": "memory.stats.read",
-      "enforcement": "FULL",
-      "risks": [],
-      "requires_approval": false
-    }
+    {"name": "memory.health", "enforcement": "FULL", "risks": [], "requires_approval": false},
+    {"name": "memory.search.read", "enforcement": "FULL", "risks": ["personal_context"], "requires_approval": false},
+    {"name": "memory.stats.read", "enforcement": "FULL", "risks": [], "requires_approval": false},
+    {"name": "memory.lifecycle.start", "enforcement": "CONTROLLED", "risks": ["service_availability"], "requires_approval": true},
+    {"name": "memory.lifecycle.stop", "enforcement": "CONTROLLED", "risks": ["service_availability"], "requires_approval": true},
+    {"name": "memory.lifecycle.restart", "enforcement": "CONTROLLED", "risks": ["service_availability"], "requires_approval": true}
   ],
   "runtime": {
     "registry_id": "memory",
-    "services": [
-      "mcp-memory.service",
-      "mcp-memory-tunnel.service"
-    ],
+    "services": ["mcp-memory.service", "mcp-memory-tunnel.service"],
     "profile": "memory",
     "mcp": "http://127.0.0.1:8765/mcp",
     "health": "http://127.0.0.1:18103",
@@ -44,6 +29,11 @@
     "kind": "HTTP + Tunnel",
     "tunnel_configured": true,
     "probe_type": "http",
+    "lifecycle": {
+      "start": "provider.memory.start",
+      "stop": "provider.memory.stop",
+      "restart": "provider.memory.restart"
+    },
     "tools_probe": {
       "type": "http",
       "python": "${HOME}/mcp-memory/.venv/bin/python",
