@@ -6,12 +6,14 @@ APP_DIR="${HOME}/.local/share/mcp-control-center"
 CONFIG_DIR="${HOME}/.config/mcp-control-center"
 UNIT_DIR="${HOME}/.config/systemd/user"
 PROVIDERS_DIR="${APP_DIR}/providers"
+RUNTIME_DIR="${APP_DIR}/runtime"
 
-mkdir -p "$APP_DIR" "$CONFIG_DIR" "$UNIT_DIR" "$PROVIDERS_DIR"
+mkdir -p "$APP_DIR" "$CONFIG_DIR" "$UNIT_DIR" "$PROVIDERS_DIR" "$RUNTIME_DIR"
 install -m 0644 "$SRC_DIR/server.py" "$APP_DIR/server.py"
 install -m 0644 "$SRC_DIR/sofia_server.py" "$APP_DIR/sofia_server.py"
 install -m 0644 "$SRC_DIR/sofia_provider.py" "$APP_DIR/sofia_provider.py"
 install -m 0644 "$SRC_DIR/sofia_registry.py" "$APP_DIR/sofia_registry.py"
+install -m 0644 "$SRC_DIR/sofia_runtime_inventory.py" "$APP_DIR/sofia_runtime_inventory.py"
 install -m 0644 "$SRC_DIR/sofia_source_health.py" "$APP_DIR/sofia_source_health.py"
 install -m 0644 "$SRC_DIR/sofia_gateway_health.py" "$APP_DIR/sofia_gateway_health.py"
 install -m 0644 "$SRC_DIR/sofia_gateway_client.py" "$APP_DIR/sofia_gateway_client.py"
@@ -19,6 +21,7 @@ install -m 0644 "$SRC_DIR/sofia_lifecycle.py" "$APP_DIR/sofia_lifecycle.py"
 install -m 0644 "$SRC_DIR/sofia_health.py" "$APP_DIR/sofia_health.py"
 install -m 0644 "$SRC_DIR/sofia_ui.py" "$APP_DIR/sofia_ui.py"
 install -m 0644 "$SRC_DIR"/providers/*.provider.json "$PROVIDERS_DIR/"
+install -m 0644 "$SRC_DIR/runtime/sofia-os-canonical.json" "$RUNTIME_DIR/sofia-os-canonical.json"
 install -m 0644 "$SRC_DIR/systemd/mcp-control-center.service" "$UNIT_DIR/mcp-control-center.service"
 
 if [[ ! -f "$CONFIG_DIR/token" ]]; then
@@ -34,6 +37,7 @@ python3 -m py_compile \
   "$APP_DIR/sofia_server.py" \
   "$APP_DIR/sofia_provider.py" \
   "$APP_DIR/sofia_registry.py" \
+  "$APP_DIR/sofia_runtime_inventory.py" \
   "$APP_DIR/sofia_source_health.py" \
   "$APP_DIR/sofia_gateway_health.py" \
   "$APP_DIR/sofia_gateway_client.py" \
