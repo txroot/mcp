@@ -14,6 +14,8 @@ install -m 0644 "$SRC_DIR/sofia_provider.py" "$APP_DIR/sofia_provider.py"
 install -m 0644 "$SRC_DIR/sofia_registry.py" "$APP_DIR/sofia_registry.py"
 install -m 0644 "$SRC_DIR/sofia_source_health.py" "$APP_DIR/sofia_source_health.py"
 install -m 0644 "$SRC_DIR/sofia_gateway_health.py" "$APP_DIR/sofia_gateway_health.py"
+install -m 0644 "$SRC_DIR/sofia_gateway_client.py" "$APP_DIR/sofia_gateway_client.py"
+install -m 0644 "$SRC_DIR/sofia_lifecycle.py" "$APP_DIR/sofia_lifecycle.py"
 install -m 0644 "$SRC_DIR/sofia_health.py" "$APP_DIR/sofia_health.py"
 install -m 0644 "$SRC_DIR/sofia_ui.py" "$APP_DIR/sofia_ui.py"
 install -m 0644 "$SRC_DIR"/providers/*.provider.json "$PROVIDERS_DIR/"
@@ -34,6 +36,8 @@ python3 -m py_compile \
   "$APP_DIR/sofia_registry.py" \
   "$APP_DIR/sofia_source_health.py" \
   "$APP_DIR/sofia_gateway_health.py" \
+  "$APP_DIR/sofia_gateway_client.py" \
+  "$APP_DIR/sofia_lifecycle.py" \
   "$APP_DIR/sofia_health.py" \
   "$APP_DIR/sofia_ui.py"
 systemctl --user daemon-reload
