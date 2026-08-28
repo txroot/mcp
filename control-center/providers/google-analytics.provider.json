@@ -1,8 +1,8 @@
 {
   "provider_id": "provider:google-analytics/001",
   "name": "Google Analytics",
-  "version": "0.1.0",
-  "description": "Eletrix GA4 read-only provider.",
+  "version": "0.2.0",
+  "description": "Eletrix GA4 read-only provider with Gateway-mediated lifecycle.",
   "gateway_required": true,
   "direct_external_exposure": false,
   "health": {
@@ -14,7 +14,10 @@
   "capabilities": [
     {"name": "google_analytics.health", "enforcement": "FULL", "risks": [], "requires_approval": false},
     {"name": "google_analytics.report.read", "enforcement": "FULL", "risks": ["analytics_data"], "requires_approval": false},
-    {"name": "google_analytics.metadata.read", "enforcement": "FULL", "risks": [], "requires_approval": false}
+    {"name": "google_analytics.metadata.read", "enforcement": "FULL", "risks": [], "requires_approval": false},
+    {"name": "google_analytics.lifecycle.start", "enforcement": "CONTROLLED", "risks": ["service_availability"], "requires_approval": true},
+    {"name": "google_analytics.lifecycle.stop", "enforcement": "CONTROLLED", "risks": ["service_availability"], "requires_approval": true},
+    {"name": "google_analytics.lifecycle.restart", "enforcement": "CONTROLLED", "risks": ["service_availability"], "requires_approval": true}
   ],
   "runtime": {
     "registry_id": "google-analytics",
@@ -27,6 +30,11 @@
     "tunnel_configured": true,
     "probe_type": "http",
     "source_probe": "google_analytics",
+    "lifecycle": {
+      "start": "provider.google-analytics.start",
+      "stop": "provider.google-analytics.stop",
+      "restart": "provider.google-analytics.restart"
+    },
     "tools_probe": {
       "type": "http",
       "python": "${HOME}/chatgpt-workspace/google-analytics-mcp/.venv/bin/python",
