@@ -62,7 +62,8 @@ def _gateway_health(item: dict[str, Any], config: dict[str, Any]) -> dict[str, A
     required = _contract(config, "gateway_health", bool(config.get("provider_manifest")))
     evidence = item.get("gateway_access")
     if isinstance(evidence, dict):
-        state = "healthy" if evidence.get("ok") else "unhealthy"
+        explicit_state = str(evidence.get("state") or "")
+        state = explicit_state if explicit_state in HEALTH_STATES else ("healthy" if evidence.get("ok") else "unhealthy")
         return _layer(state, str(evidence.get("text") or "Gateway check completed"), required=required)
 
     manifest = config.get("provider_manifest") or {}
